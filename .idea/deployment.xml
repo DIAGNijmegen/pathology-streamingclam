@@ -1,32 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="PublishConfigData" autoUpload="Always" serverName="stephandooper@dlc-moltres:2222 agent (2)" remoteFilesAllowedToDisappearOnAutoupload="false">
+  <component name="PublishConfigData" autoUpload="Always" serverName="stephandooper@dlc-arceus:2222 agent" remoteFilesAllowedToDisappearOnAutoupload="false" confirmBeforeUploading="false">
+    <option name="confirmBeforeUploading" value="false" />
     <serverData>
       <paths name="stephandooper@dlc-arceus:2222 agent">
         <serverdata>
           <mappings>
-            <mapping local="$PROJECT_DIR$" web="/" />
-          </mappings>
-        </serverdata>
-      </paths>
-      <paths name="stephandooper@dlc-moltres:2222 agent">
-        <serverdata>
-          <mappings>
-            <mapping local="$PROJECT_DIR$" web="/" />
-          </mappings>
-        </serverdata>
-      </paths>
-      <paths name="stephandooper@dlc-moltres:2222 agent (2)">
-        <serverdata>
-          <mappings>
-            <mapping deploy="/tmp/pycharm_project_385" local="$PROJECT_DIR$" />
-          </mappings>
-        </serverdata>
-      </paths>
-      <paths name="stephandooper@dlc-tornadus:2222 agent">
-        <serverdata>
-          <mappings>
-            <mapping local="$PROJECT_DIR$" web="/" />
+            <mapping deploy="/data/pathology/projects/pathology-bigpicture-streamingclam/lightstream-implementation/pathology-streamingclam" local="$PROJECT_DIR$" web="/" />
           </mappings>
         </serverdata>
       </paths>

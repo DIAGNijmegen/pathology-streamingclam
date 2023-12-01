@@ -1,9 +1,9 @@
 import torch
 
-from modules.base import BaseModel
+from lightstream.modules.base import BaseModel
 
-from models.resnet.resnet import split_resnet
-from applications.streamingclam.clam import CLAM_MB, CLAM_SB
+from lightstream.models.resnet.resnet import split_resnet
+from streamingclam.models.clam import CLAM_MB, CLAM_SB
 
 from torchvision.models import resnet18, resnet34, resnet50
 from torchmetrics.classification import Accuracy, AUROC
@@ -42,7 +42,7 @@ class CLAMConfig:
         elif self.encoder in ("resnet18", "resnet34"):
             return [512, 512, 256]
 
-    def configure_model(self):
+    def configure_clam(self):
         # size args original: self.size_dict = {"small": [1024, 512, 256], "big": [1024, 512, 384]}
         if self.branch == "sb":
             print("Loading CLAM with single branch \n")
@@ -107,7 +107,7 @@ class StreamingCLAM(BaseModel):
         # Define the streaming network and head
         network = StreamingCLAM.model_choices[encoder](weights="IMAGENET1K_V1")
         stream_net, _ = split_resnet(network)
-        head = CLAMConfig(encoder=encoder, branch=branch, n_classes=n_classes, **kwargs).configure_model()
+        head = CLAMConfig(encoder=encoder, branch=branch, n_classes=n_classes, **kwargs).configure_clam()
 
         # At the end of the ResNet model, reduce the spatial dimensions with additional max pool
         self.ds_blocks = None
@@ -132,8 +132,10 @@ class StreamingCLAM(BaseModel):
         self.test_acc = Accuracy(task="binary", num_classes=n_classes)
         self.test_auc = AUROC(task="binary", num_classes=n_classes)
 
+        self.test_outputs = []
+
     def add_maxpool_layers(self, network):
-        ds_blocks = torch.nn.Sequential(torch.nn.MaxPool2d((self.max_pool_kernel, self.max_pool_kernel)))
+        ds_blocks = torch.nn.Sequential(torch.nn.MaxPool2d((self.max_pool_kernel, self.max_pool_kernel), ceil_mode=True))
 
         if self.stream_maxpool_kernel:
             return torch.nn.Sequential(network, ds_blocks)
@@ -183,10 +185,10 @@ class StreamingCLAM(BaseModel):
         return out
 
     def training_step(self, batch, batch_idx: int, *args, **kwargs):
-        if len(batch) == 3:
-            image, mask, label = batch
+        if len(batch) == 4:
+            fname, image, mask, label = batch
         else:
-            image, label = batch
+            fname, image, label = batch
             mask = None
 
         self.image = image
@@ -224,9 +226,8 @@ class StreamingCLAM(BaseModel):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        loss, y_hat, label = self._shared_eval_step(batch, batch_idx)
-        print(y_hat, label)
-        self.val_acc(torch.argmax(y_hat, dim=1), label)
+        loss, y_hat, label, fname = self._shared_eval_step(batch, batch_idx)
+        self.val_acc(torch.argmax(y_hat, dim=1).detach(), label)
         self.val_auc(torch.sigmoid(y_hat)[:, 1], label)
 
         # Should update and clear automatically, as per
@@ -234,29 +235,31 @@ class StreamingCLAM(BaseModel):
         # https: // lightning.ai / docs / pytorch / stable / extensions / logging.html
         metrics = {"val_acc": self.val_acc, "val_auc": self.val_auc, "val_loss": loss}
         self.log_dict(metrics, prog_bar=True)
-        return metrics
 
     def test_step(self, batch, batch_idx):
-        loss, y_hat, label = self._shared_eval_step(batch, batch_idx)
+        loss, y_hat, label, fname = self._shared_eval_step(batch, batch_idx)
+        probs = torch.sigmoid(y_hat)
 
-        self.test_acc(torch.argmax(y_hat, dim=1))
-        self.test_auc(torch.sigmoid(y_hat)[:, 1])
+        self.test_acc(torch.argmax(y_hat, dim=1), label)
+        self.test_auc(probs[:, 1], label)
 
         metrics = {"test_acc": self.test_acc, "test_auc": self.test_auc, "test_loss": loss}
         self.log_dict(metrics, prog_bar=True)
-        return metrics
+        outputs = [fname, label.cpu().numpy()[0], torch.argmax(y_hat, dim=1).cpu().numpy()[0], probs[:,0][0].cpu().numpy(), probs[:,1][0].cpu().numpy()]
+
+        self.test_outputs.append(outputs)
+        return outputs
 
     def _shared_eval_step(self, batch, batch_idx):
-        if len(batch) == 3:
-            image, mask, label = batch
+        if len(batch) == 4:
+            fname, image, mask, label = batch
         else:
-            image, label = batch
+            fname, image, label = batch
             mask = None
 
-        y_hat = self.forward(image)[0].detach()
+        y_hat = self.forward(image, mask=mask)[0].detach()
         loss = self.loss_fn(y_hat, label).detach()
-
-        return loss, y_hat, label.detach()
+        return loss, y_hat, label.detach(), fname[0]
 
 
 if __name__ == "__main__":

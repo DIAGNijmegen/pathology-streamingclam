@@ -1,12 +1,11 @@
 import pyvips
-import math
 import torch
 
 import pandas as pd
-import numpy as np
 
 from pathlib import Path
 from torch.utils.data import Dataset
+import albumentationsxl as T
 
 
 class StreamingClassificationDataset(Dataset):
@@ -54,6 +53,7 @@ class StreamingClassificationDataset(Dataset):
 
     def check_csv(self):
         """Check if entries in csv file exist"""
+
         included = {"images": [], "masks": [], "labels": []} if self.mask_dir else {"images": [], "labels": []}
         for i in range(len(self)):
             images, label = self.get_img_path(i)  #
@@ -104,16 +104,7 @@ class StreamingClassificationDataset(Dataset):
         # Output of transforms are uint8 images in the range [0,255]
         normalize = T.Compose(
             [
-                T.PadIfNeeded(
-                    pad_height_divisor=self.tile_delta,
-                    pad_width_divisor=self.tile_delta,
-                    min_height=None,
-                    min_width=None,
-                    value=[255, 255, 255],
-                    mask_value=[0, 0, 0],
-                ),
-                T.ToDtype("float", scale=True),
-                T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+                T.CropOrPad(self.img_size, self.img_size, p=1.0),
             ]
         )
 
@@ -130,9 +121,9 @@ class StreamingClassificationDataset(Dataset):
 
         if self.mask_dir:
             sample["mask"] = sample["mask"] >= 1
-            return sample["image"], sample["mask"], torch.tensor(label)
+            return Path(img_fname).stem, sample["image"], sample["mask"], torch.tensor(label)
 
-        return sample["image"], torch.tensor(label)
+        return Path(img_fname).stem, sample["image"], torch.tensor(label)
 
     def __len__(self):
         return len(self.classification_frame)
