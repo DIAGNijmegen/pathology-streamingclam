@@ -53,7 +53,7 @@ def prepare_dataloaders(options):
         val_dataset, num_workers=options.num_workers, shuffle=False, prefetch_factor=1, pin_memory=True
     )
     test_loader = DataLoader(
-        test_dataset, num_workers=options.num_workers, shuffle=False, prefetch_factor=2, pin_memory=True
+        test_dataset, num_workers=options.num_workers, shuffle=False, prefetch_factor=1, pin_memory=True
     )
 
     return train_loader, val_loader, test_loader
@@ -86,7 +86,7 @@ def configure_checkpoints():
 
 
 def configure_trainer(options):
-    checkpoint_callback = configure_callbacks()
+    checkpoint_callback = configure_callbacks(options)
     trainer = pl.Trainer(
         default_root_dir=options.default_save_dir,
         accelerator="gpu",
@@ -95,7 +95,7 @@ def configure_trainer(options):
         strategy=options.strategy,
         callbacks=[checkpoint_callback, MemoryFormat()],
         accumulate_grad_batches=options.grad_batches,
-        precision="16-mixed",
+        precision="16-true",
     )
 
     return trainer
@@ -138,6 +138,7 @@ def get_model_statistics(model):
 
 
 if __name__ == "__main__":
+    torch.backends.cudnn.benchmark = True
     # Read json config from file
     options = TrainConfig()
     parser = options.configure_parser_with_options()

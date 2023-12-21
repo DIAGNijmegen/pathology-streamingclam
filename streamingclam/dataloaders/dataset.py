@@ -118,6 +118,7 @@ class StreamingClassificationDataset(Dataset):
 
         to_tensor = T.Compose([T.ToTensor(transpose_mask=True)], is_check_shapes=False)
         sample = to_tensor(**sample)
+        print("dataset dtype of tensor", sample["image"].dtype)
 
         if self.mask_dir:
             sample["mask"] = sample["mask"] >= 1

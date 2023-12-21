@@ -1,6 +1,6 @@
 import torch
 
-from lightstream.modules.base import BaseModel
+from lightstream.modules.imagenet_template import ImageNetClassifier
 
 from lightstream.models.resnet.resnet import split_resnet
 from streamingclam.models.clam import CLAM_MB, CLAM_SB
@@ -73,7 +73,7 @@ class CLAMConfig:
             )
 
 
-class StreamingCLAM(BaseModel):
+class StreamingCLAM(ImageNetClassifier):
     model_choices = {"resnet18": resnet18, "resnet34": resnet34, "resnet50": resnet50}
 
     def __init__(
@@ -85,10 +85,10 @@ class StreamingCLAM(BaseModel):
         n_classes: int,
         max_pool_kernel: int = 0,
         stream_max_pool_kernel: bool = False,
+        train_streaming_layers: bool = False,
         instance_eval: bool = False,
         return_features: bool = False,
         attention_only: bool = False,
-        *args,
         **kwargs,
     ):
         self.stream_maxpool_kernel = stream_max_pool_kernel
@@ -110,17 +110,31 @@ class StreamingCLAM(BaseModel):
         head = CLAMConfig(encoder=encoder, branch=branch, n_classes=n_classes, **kwargs).configure_clam()
 
         # At the end of the ResNet model, reduce the spatial dimensions with additional max pool
+        self._get_streaming_options(**kwargs)
+
         self.ds_blocks = None
         if self.max_pool_kernel > 0:
             if self.stream_maxpool_kernel:
                 stream_net = self.add_maxpool_layers(stream_net)
-                super().__init__(stream_net, head, tile_size, loss_fn, *args, **kwargs)
+                super().__init__(
+                    stream_net,
+                    head,
+                    tile_size,
+                    loss_fn,
+                    train_streaming_layers=train_streaming_layers,
+                    **self.streaming_options)
             else:
                 ds_blocks, head = self.add_maxpool_layers(head)
-                super().__init__(stream_net, head, tile_size, loss_fn, *args, **kwargs)
+                super().__init__(
+                    stream_net,
+                    head,
+                    tile_size,
+                    loss_fn,
+                    train_streaming_layers=train_streaming_layers,
+                    **self.streaming_options)
                 self.ds_blocks = ds_blocks
         else:
-            super().__init__(stream_net, head, tile_size, loss_fn, *args, **kwargs)
+            super().__init__(stream_net, head, tile_size, loss_fn, train_streaming_layers=train_streaming_layers, **self.streaming_options)
 
         # Define metrics
         self.train_acc = Accuracy(task="binary", num_classes=n_classes)
@@ -260,6 +274,22 @@ class StreamingCLAM(BaseModel):
         y_hat = self.forward(image, mask=mask)[0].detach()
         loss = self.loss_fn(y_hat, label).detach()
         return loss, y_hat, label.detach(), fname[0]
+
+    def _get_streaming_options(self, **kwargs):
+        """Set streaming defaults, but overwrite them with values of kwargs if present."""
+
+        # We need to add torch.nn.Batchnorm to the keep modules, because of some in-place ops error if we don't
+        # https://discuss.pytorch.org/t/register-full-backward-hook-for-residual-connection/146850
+        streaming_options = {
+            "verbose": True,
+            "copy_to_gpu": False,
+            "statistics_on_cpu": True,
+            "normalize_on_gpu": True,
+            "mean": [0.485, 0.456, 0.406],
+            "std": [0.229, 0.224, 0.225],
+            "add_keep_modules": [torch.nn.BatchNorm2d],
+        }
+        self.streaming_options = {**streaming_options, **kwargs}
 
 
 if __name__ == "__main__":

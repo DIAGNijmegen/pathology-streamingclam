@@ -27,7 +27,7 @@ class TrainConfig:
     num_classes: int = 2
 
     # Streaming options
-    tile_size: int = 11264
+    tile_size: int = 7680
     statistics_on_cpu: bool = True
     verbose: bool = True
     train_streaming_layers: bool = False
