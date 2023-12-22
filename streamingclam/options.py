@@ -1,4 +1,6 @@
 import dataclasses
+
+import torch.nn
 from dataclasses_json import dataclass_json
 import argparse
 
@@ -12,32 +14,48 @@ class TrainConfig:
     val_csv: str = ""
     test_csv: str = ""
     mask_suffix: str = "_tissue"  # the suffix for mask tissues e.g. tumor_069_<mask_suffix>.tif
-    default_save_dir: str = "/data/pathology/projects/pathology-bigpicture-streamingclam/lightstream-implementation/ckp"
-    num_gpus: int = 1
-    strategy: str = "ddp_find_unused_parameters_true"
-    grad_batches: int = 1  # Gradient accumulation: the amount of batches before optimzier step
-    resume: bool = True  # Whether to resume training from the last epochs
     mode: str = "test"  # train, validation, or test
+    unfreeze_streaming_layers_at_epoch: int = 20
+
+
+    # Trainer options
+    num_epochs: int = 100  # The number of epochs to train (max)
+    strategy: str = "auto"
+    default_save_dir: str = "/data/pathology/projects/pathology-bigpicture-streamingclam/lightstream-implementation/ckp"
+    resume: bool = True  # Whether to resume training from the last/best epoch
+    grad_batches: int = 8  # Gradient accumulation: the amount of batches before optimizer step
+    num_gpus: int = 1
+    precision: str = "bf16-true"
+
 
     # StreamingClam options
-    num_epochs: int = 100  # The number of epochs to train (max)
     encoder: str = "resnet34"  # Resnet 18, ResNet34, Resnet50
     branch: str = "sb"  # sb or mb
     max_pool_kernel: int = 8
     num_classes: int = 2
+    loss_fn: torch.nn.Module = torch.nn.CrossEntropyLoss()
+    instance_eval: bool = False
+    return_features: bool = False
+    attention_only: bool = False
+    stream_max_pool_kernel: bool = False
+
 
     # Streaming options
     tile_size: int = 7680
     statistics_on_cpu: bool = True
     verbose: bool = True
     train_streaming_layers: bool = False
+    normalize_on_gpu: bool = True
+    copy_to_gpu: bool = True  # Whether to copy the entire image to the gpu. Recommended False if image > 16000x16000
 
     # Dataloader options
-    img_size: int = 65536 # represents image size if variable_input_shape=False, else the maximum image size
+    image_size: int = 16384  # represents image size if variable_input_shape=False, else the maximum image size
     variable_input_shapes: bool = True
     filetype: str = ".tif"
-    read_level: int = 1  # the level of the tif file (0 is highest resolution)
-    num_workers: int = 2
+    read_level: int = 4  # the level of the tif file (0 is highest resolution)
+    num_workers: int = 1
+    use_augmentations: bool = True
+
 
     def configure_parser_with_options(self):
         """Create an argparser based on the attributes"""

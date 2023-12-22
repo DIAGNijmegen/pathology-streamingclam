@@ -1,30 +1,29 @@
 import pyvips
 import torch
+import math
 
 import pandas as pd
 
 from pathlib import Path
 from torch.utils.data import Dataset
-import albumentationsxl as T
+import albumentationsxl as A
 
 
 class StreamingClassificationDataset(Dataset):
     def __init__(
         self,
-        img_dir,
-        csv_file,
-        tile_size,
-        img_size,
-        transform,
-        mask_dir=None,
-        mask_suffix="_tissue",
-        variable_input_shapes=False,
-        tile_delta=None,
-        network_output_stride=1,
+        img_dir: Path | str,
+        csv_file: str,
+        tile_size: int,
+        img_size: int,
+        read_level: int,
+        transform: A.BaseCompose | None = None,
+        mask_dir: Path | str | None = None,
+        mask_suffix: str = "_tissue",
+        variable_input_shapes: bool = False,
+        tile_stride: int | None = None,
+        network_output_stride: int = 1,
         filetype=".tif",
-        read_level=0,
-        *args,
-        **kwargs,
     ):
         self.img_dir = Path(img_dir)
         self.filetype = filetype
@@ -33,7 +32,7 @@ class StreamingClassificationDataset(Dataset):
 
         self.read_level = read_level
         self.tile_size = tile_size
-        self.tile_delta = tile_delta
+        self.tile_stride = tile_stride
         self.network_output_stride = network_output_stride
         self.img_size = img_size
 
@@ -50,6 +49,8 @@ class StreamingClassificationDataset(Dataset):
         self.check_csv()
 
         self.labels = self.data_paths["labels"]
+
+        self.transform_routine = A.Compose([])
 
     def check_csv(self):
         """Check if entries in csv file exist"""
@@ -84,41 +85,48 @@ class StreamingClassificationDataset(Dataset):
 
         return [img_path], label
 
-    def __getitem__(self, idx):
+    def get_img_pairs(self, idx):
+        images = {"image": None, "mask": None}
+
         img_fname = str(self.data_paths["images"][idx])
         label = int(self.data_paths["labels"][idx])
-
         image = pyvips.Image.new_from_file(img_fname, page=self.read_level)
-        sample = {"image": image}
+        images["image"] = image
 
         if self.mask_dir:
             mask_fname = str(self.data_paths["masks"][idx])
             mask = pyvips.Image.new_from_file(mask_fname)
             ratio = image.width / mask.width
-            sample["mask"] = mask.resize(ratio, kernel="nearest")  # Resize mask to img size
+            images["mask"] = mask.resize(ratio, kernel="nearest")  # Resize mask to img size
+
+        return images, label, img_fname
+
+    def __getitem__(self, idx):
+        sample, label, img_fname = self.get_img_pairs(idx)
 
         if self.transform:
-            # print("applying transforms")
-            sample = self.transform(**sample)
+            sample = self.transform_routine(**sample)
 
-        # Output of transforms are uint8 images in the range [0,255]
-        normalize = T.Compose(
-            [
-                T.CropOrPad(self.img_size, self.img_size, p=1.0),
-            ]
-        )
-
-        sample = normalize(**sample)
+        pad_to_tile_size = sample["image"].width < self.tile_size or sample["image"].height < self.tile_size
+        # Get the resize op depending on image size
+        resize_op = self.get_resize_op(pad_to_tile_size=pad_to_tile_size)
+        sample = resize_op(**sample)
 
         # Masks don't need to be really large for tissues, so scale them back
-        # TODO: Make transformation that operates on mask alone to resize
         if self.mask_dir:
             # Resize to streamingclam output stride, with max pool kernel
-            sample["mask"] = sample["mask"].resize(1 / self.network_output_stride, kernel="nearest")
+            # Rescale between model max pool and pyvips might not exactly align, so calculate new
+            # scale values
+            new_height = math.ceil(sample["mask"].height / self.network_output_stride)
+            vscale = new_height / sample["mask"].height
 
-        to_tensor = T.Compose([T.ToTensor(transpose_mask=True)], is_check_shapes=False)
+            new_width = math.ceil(sample["mask"].width / self.network_output_stride)
+            hscale = new_width / sample["mask"].width
+
+            sample["mask"] = sample["mask"].resize(hscale, vscale=vscale, kernel="nearest")
+
+        to_tensor = A.Compose([A.ToTensor(transpose_mask=True)], is_check_shapes=False)
         sample = to_tensor(**sample)
-        print("dataset dtype of tensor", sample["image"].dtype)
 
         if self.mask_dir:
             sample["mask"] = sample["mask"] >= 1
@@ -128,6 +136,35 @@ class StreamingClassificationDataset(Dataset):
 
     def __len__(self):
         return len(self.classification_frame)
+
+    def get_resize_op(self, pad_to_tile_size=False):
+        if not self.variable_input_shapes:
+            # Crop everything to specific image size if variable_input_shapes is off
+            return A.Compose([A.CropOrPad(self.img_size, self.img_size, p=1.0)])
+
+        # Pad images that are smaller than the tile size to the tile size
+        if pad_to_tile_size:
+            return A.Compose(
+                [
+                    A.PadIfNeeded(
+                        min_width=self.tile_size, min_height=self.tile_size, value=[255, 255, 255], mask_value=[0, 0, 0]
+                    )
+                ]
+            )
+
+        # Images that are already larger than tile size should be padded to a multiple of tile_stride
+        return A.Compose(
+            [
+                A.PadIfNeeded(
+                    min_height=None,
+                    min_width=None,
+                    pad_width_divisor=self.tile_stride,
+                    pad_height_divisor=self.tile_stride,
+                    value=[255, 255, 255],
+                    mask_value=[0, 0, 0],
+                ),
+            ]
+        )
 
 
 if __name__ == "__main__":
@@ -144,11 +181,17 @@ if __name__ == "__main__":
         transform=[],
         mask_dir=mask_path,
         mask_suffix="_tissue",
-        variable_input_shapes=True,
-        tile_delta=680,
+        variable_input_shapes=False,
+        tile_stride=680,
         filetype=".tif",
-        read_level=1,
+        read_level=5,
     )
 
-    for x in dataset:
-        print(x[0].shape, x[1].shape, x[2])
+    import matplotlib.pyplot as plt
+    ds = iter(dataset)
+    sample = next(ds)
+
+    plt.imshow(sample[1].permute(1,2,0).cpu().numpy())
+    plt.show()
+    plt.imshow(sample[2].cpu().numpy())
+    plt.show()

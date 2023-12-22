@@ -47,7 +47,6 @@ class MemoryFormat(Callback):
                 f"model does not have any layers benefiting from {self.memory_format} format", category=RuntimeWarning
             )
 
-        print("lightning module being changed:", pl_module)
         pl_module.to(memory_format=self.memory_format)
 
     def teardown(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule", stage: Optional[str] = None) -> None:

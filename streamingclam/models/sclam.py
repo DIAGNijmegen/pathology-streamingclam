@@ -21,8 +21,6 @@ class CLAMConfig:
         k_sample: int = 8,
         instance_loss_fn: torch.nn = torch.nn.CrossEntropyLoss,
         subtyping=False,
-        *args,
-        **kwargs,
     ):
         self.branch = branch
         self.encoder = encoder
@@ -107,7 +105,7 @@ class StreamingCLAM(ImageNetClassifier):
         # Define the streaming network and head
         network = StreamingCLAM.model_choices[encoder](weights="IMAGENET1K_V1")
         stream_net, _ = split_resnet(network)
-        head = CLAMConfig(encoder=encoder, branch=branch, n_classes=n_classes, **kwargs).configure_clam()
+        head = CLAMConfig(encoder=encoder, branch=branch, n_classes=n_classes).configure_clam()
 
         # At the end of the ResNet model, reduce the spatial dimensions with additional max pool
         self._get_streaming_options(**kwargs)
@@ -122,7 +120,8 @@ class StreamingCLAM(ImageNetClassifier):
                     tile_size,
                     loss_fn,
                     train_streaming_layers=train_streaming_layers,
-                    **self.streaming_options)
+                    **self.streaming_options,
+                )
             else:
                 ds_blocks, head = self.add_maxpool_layers(head)
                 super().__init__(
@@ -131,10 +130,18 @@ class StreamingCLAM(ImageNetClassifier):
                     tile_size,
                     loss_fn,
                     train_streaming_layers=train_streaming_layers,
-                    **self.streaming_options)
+                    **self.streaming_options,
+                )
                 self.ds_blocks = ds_blocks
         else:
-            super().__init__(stream_net, head, tile_size, loss_fn, train_streaming_layers=train_streaming_layers, **self.streaming_options)
+            super().__init__(
+                stream_net,
+                head,
+                tile_size,
+                loss_fn,
+                train_streaming_layers=train_streaming_layers,
+                **self.streaming_options,
+            )
 
         # Define metrics
         self.train_acc = Accuracy(task="binary", num_classes=n_classes)
@@ -149,7 +156,9 @@ class StreamingCLAM(ImageNetClassifier):
         self.test_outputs = []
 
     def add_maxpool_layers(self, network):
-        ds_blocks = torch.nn.Sequential(torch.nn.MaxPool2d((self.max_pool_kernel, self.max_pool_kernel), ceil_mode=True))
+        ds_blocks = torch.nn.Sequential(
+            torch.nn.MaxPool2d((self.max_pool_kernel, self.max_pool_kernel), ceil_mode=True)
+        )
 
         if self.stream_maxpool_kernel:
             return torch.nn.Sequential(network, ds_blocks)
@@ -259,7 +268,13 @@ class StreamingCLAM(ImageNetClassifier):
 
         metrics = {"test_acc": self.test_acc, "test_auc": self.test_auc, "test_loss": loss}
         self.log_dict(metrics, prog_bar=True)
-        outputs = [fname, label.cpu().numpy()[0], torch.argmax(y_hat, dim=1).cpu().numpy()[0], probs[:,0][0].cpu().numpy(), probs[:,1][0].cpu().numpy()]
+        outputs = [
+            fname,
+            label.cpu().numpy()[0],
+            torch.argmax(y_hat, dim=1).cpu().numpy()[0],
+            probs[:, 0][0].cpu().numpy(),
+            probs[:, 1][0].cpu().numpy(),
+        ]
 
         self.test_outputs.append(outputs)
         return outputs
