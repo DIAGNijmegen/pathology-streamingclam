@@ -50,7 +50,6 @@ class StreamingClassificationDataset(Dataset):
 
         self.labels = self.data_paths["labels"]
 
-        self.transform_routine = A.Compose([])
 
     def check_csv(self):
         """Check if entries in csv file exist"""
@@ -105,7 +104,7 @@ class StreamingClassificationDataset(Dataset):
         sample, label, img_fname = self.get_img_pairs(idx)
 
         if self.transform:
-            sample = self.transform_routine(**sample)
+            sample = self.transform(**sample)
 
         pad_to_tile_size = sample["image"].width < self.tile_size or sample["image"].height < self.tile_size
         # Get the resize op depending on image size
@@ -115,8 +114,7 @@ class StreamingClassificationDataset(Dataset):
         # Masks don't need to be really large for tissues, so scale them back
         if self.mask_dir:
             # Resize to streamingclam output stride, with max pool kernel
-            # Rescale between model max pool and pyvips might not exactly align, so calculate new
-            # scale values
+            # Rescale between model max pool and pyvips might not exactly align, so calculate new scale values
             new_height = math.ceil(sample["mask"].height / self.network_output_stride)
             vscale = new_height / sample["mask"].height
 
@@ -124,15 +122,12 @@ class StreamingClassificationDataset(Dataset):
             hscale = new_width / sample["mask"].width
 
             sample["mask"] = sample["mask"].resize(hscale, vscale=vscale, kernel="nearest")
+            sample["mask"] = sample["mask"] >= 1
 
         to_tensor = A.Compose([A.ToTensor(transpose_mask=True)], is_check_shapes=False)
         sample = to_tensor(**sample)
 
-        if self.mask_dir:
-            sample["mask"] = sample["mask"] >= 1
-            return Path(img_fname).stem, sample["image"], sample["mask"], torch.tensor(label)
-
-        return Path(img_fname).stem, sample["image"], torch.tensor(label)
+        return sample, torch.tensor(label), Path(img_fname).stem
 
     def __len__(self):
         return len(self.classification_frame)
@@ -173,12 +168,29 @@ if __name__ == "__main__":
     mask_path = root / Path("data/breast/camelyon_packed_0.25mpp_tif/images_tissue_masks")
     csv_file = root / Path("streaming_experiments/camelyon/data_splits/train_0.csv")
 
+    augmentations = A.Compose(
+        [
+            A.Flip(),
+            A.RandomGamma(gamma_limit=(75, 125)),
+            A.RandomBrightnessContrast(brightness_limit=0.1, contrast_limit=0.2),
+            A.HueSaturationValue(p=0.5),
+            A.OneOrOther(A.OneOf([A.Blur(), A.GaussianBlur(sigma_limit=7)]), A.Sharpen()),
+            A.OneOf(
+                [
+                    A.Rotate(),
+                    A.Affine(
+                        rotate=(-90, 90), translate_percent=(0, 0.1), shear=(-10, 10), cval_mask=[0, 0, 0], p=0.3
+                    ),
+                ]
+            ),
+        ],
+    )
     dataset = StreamingClassificationDataset(
         img_dir=str(data_path),
         csv_file=str(csv_file),
         tile_size=1600,
-        img_size=3200,
-        transform=[],
+        img_size=1600,
+        transform=None,
         mask_dir=mask_path,
         mask_suffix="_tissue",
         variable_input_shapes=False,
@@ -189,9 +201,15 @@ if __name__ == "__main__":
 
     import matplotlib.pyplot as plt
     ds = iter(dataset)
-    sample = next(ds)
-
-    plt.imshow(sample[1].permute(1,2,0).cpu().numpy())
+    print("Creating dataset")
+    sample, label, name = next(ds)
+    print("retrieving image")
+    image = sample["image"]
+    mask = sample["mask"]
+    print("image shape", image.shape)
+    print("image dtype", image.dtype)
+    plt.imshow(image.permute(1, 2, 0).cpu().numpy())
     plt.show()
-    plt.imshow(sample[2].cpu().numpy())
+    print("mask shape", mask.shape)
+    plt.imshow(mask.cpu().numpy())
     plt.show()
