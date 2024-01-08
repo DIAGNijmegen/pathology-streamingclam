@@ -9,6 +9,23 @@ from torch.utils.data import Dataset
 import albumentationsxl as A
 
 
+augmentations = A.Compose(
+    [
+        A.Flip(),
+        A.RandomGamma(gamma_limit=(75, 125)),
+        A.RandomBrightnessContrast(brightness_limit=0.1, contrast_limit=0.2),
+        A.HueSaturationValue(p=0.5),
+        A.OneOrOther(A.OneOf([A.Blur(), A.GaussianBlur(sigma_limit=7)]), A.Sharpen()),
+        A.OneOf(
+            [
+                A.Rotate(),
+                A.Affine(rotate=(-90, 90), translate_percent=(0, 0.1), shear=(-10, 10), cval_mask=[0, 0, 0], p=0.3),
+            ]
+        ),
+    ],
+)
+
+
 class StreamingClassificationDataset(Dataset):
     def __init__(
         self,
@@ -44,12 +61,12 @@ class StreamingClassificationDataset(Dataset):
         # Will be populated in check_csv function
         self.data_paths = {"images": [], "masks": [], "labels": []}
 
+        self.random_crop = A.RandomCrop(self.img_size, self.img_size, p=1.0)
         if not self.img_dir.exists():
             raise FileNotFoundError(f"Directory {self.img_dir} not found or doesn't exist")
         self.check_csv()
 
         self.labels = self.data_paths["labels"]
-
 
     def check_csv(self):
         """Check if entries in csv file exist"""
@@ -111,8 +128,12 @@ class StreamingClassificationDataset(Dataset):
         resize_op = self.get_resize_op(pad_to_tile_size=pad_to_tile_size)
         sample = resize_op(**sample)
 
+        # if after padding to the tile stride the image is bigger than img_size, crop it (upper bound on memory)
+        if sample["image"].width * sample["image"].height > self.img_size**2:
+            sample = self.random_crop(**sample)
+
         # Masks don't need to be really large for tissues, so scale them back
-        if self.mask_dir:
+        if sample["mask"] is not None:
             # Resize to streamingclam output stride, with max pool kernel
             # Rescale between model max pool and pyvips might not exactly align, so calculate new scale values
             new_height = math.ceil(sample["mask"].height / self.network_output_stride)
@@ -122,10 +143,13 @@ class StreamingClassificationDataset(Dataset):
             hscale = new_width / sample["mask"].width
 
             sample["mask"] = sample["mask"].resize(hscale, vscale=vscale, kernel="nearest")
-            sample["mask"] = sample["mask"] >= 1
 
         to_tensor = A.Compose([A.ToTensor(transpose_mask=True)], is_check_shapes=False)
         sample = to_tensor(**sample)
+
+        # To ToTensor does not support cast to bool arrays yet, so do here
+        if sample["mask"] is not None:
+            sample["mask"] = sample["mask"] >= 1
 
         return sample, torch.tensor(label), Path(img_fname).stem
 
@@ -168,29 +192,12 @@ if __name__ == "__main__":
     mask_path = root / Path("data/breast/camelyon_packed_0.25mpp_tif/images_tissue_masks")
     csv_file = root / Path("streaming_experiments/camelyon/data_splits/train_0.csv")
 
-    augmentations = A.Compose(
-        [
-            A.Flip(),
-            A.RandomGamma(gamma_limit=(75, 125)),
-            A.RandomBrightnessContrast(brightness_limit=0.1, contrast_limit=0.2),
-            A.HueSaturationValue(p=0.5),
-            A.OneOrOther(A.OneOf([A.Blur(), A.GaussianBlur(sigma_limit=7)]), A.Sharpen()),
-            A.OneOf(
-                [
-                    A.Rotate(),
-                    A.Affine(
-                        rotate=(-90, 90), translate_percent=(0, 0.1), shear=(-10, 10), cval_mask=[0, 0, 0], p=0.3
-                    ),
-                ]
-            ),
-        ],
-    )
     dataset = StreamingClassificationDataset(
         img_dir=str(data_path),
         csv_file=str(csv_file),
         tile_size=1600,
         img_size=1600,
-        transform=None,
+        transform=augmentations,
         mask_dir=mask_path,
         mask_suffix="_tissue",
         variable_input_shapes=False,
@@ -200,6 +207,7 @@ if __name__ == "__main__":
     )
 
     import matplotlib.pyplot as plt
+
     ds = iter(dataset)
     print("Creating dataset")
     sample, label, name = next(ds)

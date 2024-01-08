@@ -3,5 +3,5 @@
   <component name="Black">
     <option name="sdkName" value="Remote Python 3.11.3 (sftp://stephandooper@dlc-moltres:2222/home/stephandooper/.virtualenvs/pathology-streamingclam/bin/python)" />
   </component>
-  <component name="ProjectRootManager" version="2" project-jdk-name="Remote Python 3.11.3 (sftp://stephandooper@dlc-tornadus:2222/home/stephandooper/.virtualenvs/pathology-streamingclam/bin/python)" project-jdk-type="Python SDK" />
+  <component name="ProjectRootManager" version="2" project-jdk-name="Remote Python 3.11.3 (sftp://stephandooper@dlc-arceus:3333/home/stephandooper/.virtualenvs/pathology-streamingclam/bin/python)" project-jdk-type="Python SDK" />
 </project>

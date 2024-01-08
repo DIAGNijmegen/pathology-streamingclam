@@ -6,6 +6,7 @@ from lightstream.models.resnet.resnet import split_resnet
 from streamingclam.models.clam import CLAM_MB, CLAM_SB
 
 from torchvision.models import resnet18, resnet34, resnet50
+from torchmetrics import MetricCollection
 from torchmetrics.classification import Accuracy, AUROC
 
 
@@ -144,6 +145,13 @@ class StreamingCLAM(ImageNetClassifier):
             )
 
         # Define metrics
+        metrics = MetricCollection(
+            [
+                Accuracy(task="binary", num_classes=n_classes),
+                AUROC(task="binary", num_classes=n_classes),
+            ]
+        )
+
         self.train_acc = Accuracy(task="binary", num_classes=n_classes)
         self.train_auc = AUROC(task="binary", num_classes=n_classes)
 
@@ -166,7 +174,13 @@ class StreamingCLAM(ImageNetClassifier):
             return ds_blocks, network
 
     def forward_head(
-        self, fmap, mask=None, instance_eval=False, label=None, return_features=False, attention_only=False
+        self,
+        fmap,
+        mask=None,
+        instance_eval=False,
+        label=None,
+        return_features=False,
+        attention_only=False,
     ):
         batch_size, num_features, h, w = fmap.shape
 
@@ -183,7 +197,12 @@ class StreamingCLAM(ImageNetClassifier):
         fmap = torch.reshape(fmap, (num_features, -1)).transpose(0, 1)
 
         if self.attention_only:
-            return self.head(fmap, label=None, instance_eval=False, attention_only=self.attention_only)
+            return self.head(
+                fmap,
+                label=None,
+                instance_eval=False,
+                attention_only=self.attention_only,
+            )
 
         logits, Y_prob, Y_hat, A_raw, instance_dict = self.head(
             fmap,
@@ -195,32 +214,23 @@ class StreamingCLAM(ImageNetClassifier):
 
         return logits, Y_prob, Y_hat, A_raw, instance_dict
 
-    def forward(self, x, mask=None):
-        if len(x) == 2:
-            image, mask = x
-        else:
-            image = x
-
+    def forward(self, image, mask=None):
         fmap = self.forward_streaming(image)
         out = self.forward_head(
-            fmap, mask=mask, return_features=self.return_features, attention_only=self.attention_only
+            fmap,
+            mask=mask,
+            return_features=self.return_features,
+            attention_only=self.attention_only,
         )
         return out
 
     def training_step(self, batch, batch_idx: int, *args, **kwargs):
-        if len(batch) == 4:
-            fname, image, mask, label = batch
-        else:
-            fname, image, label = batch
-            mask = None
+        image, mask, label, fname = batch[0]["image"], batch[0]["mask"], batch[1], batch[2]
+        image = image.to("cpu")
 
         self.image = image
         self.str_output = self.forward_streaming(image)
         self.str_output.requires_grad = self.training
-
-        # Can only be changed when streaming is enabled, otherwise not a leaf variable
-        # if self.use_streaming:
-        #    self.str_output.requires_grad = True
 
         logits, Y_prob, Y_hat, A_raw, instance_dict = self.forward_head(
             self.str_output,
@@ -232,32 +242,37 @@ class StreamingCLAM(ImageNetClassifier):
         )
 
         loss = self.loss_fn(logits, label)
+        self.train_acc.update(torch.argmax(logits, dim=1).detach(), label.detach())
+        self.train_auc.update(torch.sigmoid(logits)[:, 1].detach(), label.detach())
 
-        self.train_acc(torch.argmax(logits, dim=1).detach(), label)
-        self.train_auc(torch.sigmoid(logits)[:, 1].detach(), label)
-
-        self.log_dict(
-            {
-                "train_acc": self.train_acc.compute(),
-                "train_auc": self.train_auc.compute(),
-                "entropy loss": loss.detach(),
-            },
-            prog_bar=True,
-            on_step=True,
-            on_epoch=True,
-        )
+        self.log("train_loss", loss.detach(), prog_bar=True, on_step=True, on_epoch=True, sync_dist=True)
         return loss
+
+    def on_train_epoch_end(self):
+        self.log("train_acc_epoch", self.train_acc.compute(), prog_bar=True, sync_dist=True)
+        self.log("train_auc_epoch", self.train_auc.compute(), prog_bar=True, sync_dist=True)
+
+        self.train_acc.reset()
+        self.train_auc.reset()
 
     def validation_step(self, batch, batch_idx):
         loss, y_hat, label, fname = self._shared_eval_step(batch, batch_idx)
-        self.val_acc(torch.argmax(y_hat, dim=1).detach(), label)
-        self.val_auc(torch.sigmoid(y_hat)[:, 1], label)
+        del batch
+
+        self.val_acc.update(torch.argmax(y_hat, dim=1).detach(), label)
+        self.val_auc.update(torch.sigmoid(y_hat)[:, 1], label)
 
         # Should update and clear automatically, as per
         # https://torchmetrics.readthedocs.io/en/stable/pages/lightning.html
         # https: // lightning.ai / docs / pytorch / stable / extensions / logging.html
-        metrics = {"val_acc": self.val_acc, "val_auc": self.val_auc, "val_loss": loss}
-        self.log_dict(metrics, prog_bar=True)
+        self.log("val_loss", loss, prog_bar=True, on_epoch=True, sync_dist=True)
+
+    def on_validation_epoch_end(self):
+        self.log("val_acc_epoch", self.val_acc.compute(), sync_dist=True)
+        self.log("val_auc_epoch", self.val_auc.compute(), sync_dist=True)
+
+        self.val_acc.reset()
+        self.val_auc.reset()
 
     def test_step(self, batch, batch_idx):
         loss, y_hat, label, fname = self._shared_eval_step(batch, batch_idx)
@@ -266,7 +281,11 @@ class StreamingCLAM(ImageNetClassifier):
         self.test_acc(torch.argmax(y_hat, dim=1), label)
         self.test_auc(probs[:, 1], label)
 
-        metrics = {"test_acc": self.test_acc, "test_auc": self.test_auc, "test_loss": loss}
+        metrics = {
+            "test_acc": self.test_acc,
+            "test_auc": self.test_auc,
+            "test_loss": loss,
+        }
         self.log_dict(metrics, prog_bar=True)
         outputs = [
             fname,
@@ -277,18 +296,16 @@ class StreamingCLAM(ImageNetClassifier):
         ]
 
         self.test_outputs.append(outputs)
+
         return outputs
 
     def _shared_eval_step(self, batch, batch_idx):
-        if len(batch) == 4:
-            fname, image, mask, label = batch
-        else:
-            fname, image, label = batch
-            mask = None
+        image, mask, label, fname = batch[0]["image"], batch[0]["mask"], batch[1], batch[2]
+        image = image.to("cpu")
 
         y_hat = self.forward(image, mask=mask)[0].detach()
-        loss = self.loss_fn(y_hat, label).detach()
-        return loss, y_hat, label.detach(), fname[0]
+        loss = self.loss_fn(y_hat, label)
+        return loss, y_hat, label.detach(), fname
 
     def _get_streaming_options(self, **kwargs):
         """Set streaming defaults, but overwrite them with values of kwargs if present."""
@@ -305,6 +322,19 @@ class StreamingCLAM(ImageNetClassifier):
             "add_keep_modules": [torch.nn.BatchNorm2d],
         }
         self.streaming_options = {**streaming_options, **kwargs}
+
+    def configure_optimizers(self):
+        opt = torch.optim.Adam(self.params, lr=1e-4, weight_decay=1e-5)
+        return opt
+
+    def backward(self, loss):
+        loss.backward()
+        # del loss
+        # Don't call this>? https://pytorch-lightning.readthedocs.io/en/1.5.10/guides/speed.html#things-to-avoid
+        torch.cuda.empty_cache()
+        if self.train_streaming_layers:
+            self.backward_streaming(self.image, self.str_output.grad)
+        del self.str_output, self.image
 
 
 if __name__ == "__main__":

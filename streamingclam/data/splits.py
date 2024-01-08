@@ -1,5 +1,5 @@
 import lightning as L
-
+import albumentationsxl as A
 from torch.utils.data import DataLoader
 from pathlib import Path
 
@@ -24,7 +24,7 @@ class StreamingCLAMDataModule(L.LightningDataModule):
         variable_input_shapes: bool = True,
         copy_to_gpu: bool = False,
         num_workers: int = 2,
-        transform: bool = True,
+        transform: A.BaseCompose | None = None,
         verbose: bool = True,
         filetype: str = ".tif"
     ):
@@ -142,17 +142,23 @@ class StreamingCLAMDataModule(L.LightningDataModule):
         """Transfer image to gpu only if copy_to_gpu is True
         DDP bug?: for some reason when training with more than 1 gpu, the batches will still be transferred to gpu
         somewhere between this function and the forward step in the model, making this function useless
+
+        batch : {image: image, mask: mask}, label, fname
+        batch : {image: image}, label, fname
         """
 
+        batch[2] = batch[2][0]
+        # Always put mask to gpu
+        if batch[0]["mask"] is not None:
+            batch[0]["mask"] = batch[0]["mask"].to(device)
+
         if not self.copy_to_gpu:
-            batch[1] = batch[1].to("cpu")
-            batch[2] = batch[2].to(device)
-            batch[3] = batch[3].to(device)
+            batch[0]["image"] = batch[0]["image"].to("cpu")
+            batch[1] = batch[1].to(device)
+
             return batch
+        batch[0]["image"] = batch[0]["image"].to(device)
         batch[1] = batch[1].to(device)
-        batch[2] = batch[2].to(device)
-        batch[3] = batch[3].to(device)
+
         return batch
 
-    def on_after_batch_transfer(self, batch, dataloader_idx):
-        return batch

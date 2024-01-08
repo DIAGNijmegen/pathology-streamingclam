@@ -7,7 +7,7 @@ class FeatureExtractorFreezeUnfreeze(BaseFinetuning):
         super().__init__()
         print("unfreezing streaming network at epoch", unfreeze_at_epoch)
         self._unfreeze_at_epoch = unfreeze_at_epoch
-        self._message = True
+        self.switch = True
 
     def freeze_before_training(self, pl_module):
         # freeze any module you want
@@ -22,17 +22,17 @@ class FeatureExtractorFreezeUnfreeze(BaseFinetuning):
     def finetune_function(self, pl_module, current_epoch, optimizer):
         # When `current_epoch` is self._unfreeze_at_epoch, feature_extractor will start training.
 
-        if current_epoch == self._unfreeze_at_epoch:
-            pl_module.train_streaming_layers = True
-            self.unfreeze_and_add_param_group(
-                modules=pl_module.stream_network.stream_module,
-                optimizer=optimizer,
-                train_bn=False,
-            )
+        if current_epoch >= self._unfreeze_at_epoch:
+            if self.switch:
+                pl_module.train_streaming_layers = True
+                self.unfreeze_and_add_param_group(
+                    modules=pl_module.stream_network.stream_module,
+                    optimizer=optimizer,
+                    train_bn=False,
+                )
 
-            if self._message:
                 print("Switching to training all layers in the network")
-                self._message = False
+                self.switch = False
 
     def on_train_epoch_end(self, trainer, pl_module):
         # Adjust streaming for the new situation, and unfreeze in the next epoch
@@ -48,6 +48,10 @@ class FeatureExtractorFreezeUnfreeze(BaseFinetuning):
             pl_module.tile_cache_fname = None
             pl_module.disable_streaming_hooks()
 
+            old_stream_network_dtype = pl_module.stream_network.dtype
+            old_stream_module_dtype = next(pl_module.stream_network.stream_module.parameters()).dtype
+
+
             tile_cache = pl_module.load_tile_cache_if_needed()
 
             # Reset tile cache
@@ -60,8 +64,8 @@ class FeatureExtractorFreezeUnfreeze(BaseFinetuning):
             pl_module.save_tile_cache_if_needed()
 
             # Put back dtype and memoryformat
-            pl_module.stream_network.dtype = pl_module.dtype
-            pl_module.stream_network.stream_module.to(torch.bfloat16)
+            pl_module.stream_network.dtype = old_stream_network_dtype
+            pl_module.stream_network.stream_module.to(old_stream_module_dtype)
             pl_module.stream_network.stream_module.to(memory_format=torch.channels_last)
             pl_module.on_train_start()
             # Reset dataloaders

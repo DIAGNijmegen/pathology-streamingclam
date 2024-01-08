@@ -1,4 +1,8 @@
 import os
+
+os.environ["WANDB_DIR"] = "/home/stephandooper"
+os.environ["VIPS_CONCURRENCY"] = "30"
+os.environ["OMP_NUM_THREADS"] = "4"
 import pyvips
 
 pyvips.cache_set_max(20)
@@ -13,14 +17,31 @@ from pprint import pprint
 import lightning.pytorch as pl
 from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
+from lightning.pytorch.callbacks import Callback
+from lightning.pytorch.strategies import DDPStrategy
+
 
 from streamingclam.options import TrainConfig
 from streamingclam.utils.memory_format import MemoryFormat
 from streamingclam.utils.finetune import FeatureExtractorFreezeUnfreeze
 from streamingclam.data.splits import StreamingCLAMDataModule
+from streamingclam.data.dataset import augmentations
 from streamingclam.models.sclam import StreamingCLAM
 
 torch.set_float32_matmul_precision("medium")
+
+
+class PrintingCallback(Callback):
+    def __init__(self, options):
+        super().__init__()
+        self.options = options
+
+    def setup(self, trainer, pl_module, stage):
+        print("Using configuration with the following options")
+        pl_module.print(self.options)
+
+    def on_train_end(self, trainer, pl_module):
+        print("Training is ending")
 
 
 def configure_callbacks(options):
@@ -60,11 +81,12 @@ def configure_trainer(options):
         devices=options.num_gpus,
         accumulate_grad_batches=options.grad_batches,
         precision=options.precision,
-        callbacks=[checkpoint_callback, MemoryFormat(), finetune_cb],
-        strategy=options.strategy,
+        callbacks=[checkpoint_callback, MemoryFormat(), finetune_cb, PrintingCallback(options)],
+        strategy=DDPStrategy(gradient_as_bucket_view=True, find_unused_parameters=True),
         benchmark=False,
         reload_dataloaders_every_n_epochs=options.unfreeze_streaming_layers_at_epoch,
-        logger=wandb_logger,
+        num_sanity_val_steps=0,
+        logger=wandb_logger
     )
     return trainer
 
@@ -114,33 +136,43 @@ def get_streaming_options(options):
 
 
 def configure_streamingclam(options, streaming_options):
-    model = StreamingCLAM(
-        encoder=options.encoder,
-        tile_size=options.tile_size,
-        loss_fn=options.loss_fn,
-        branch=options.branch,
-        n_classes=options.num_classes,
-        max_pool_kernel=options.max_pool_kernel,
-        stream_max_pool_kernel=options.stream_max_pool_kernel,
-        train_streaming_layers=options.train_streaming_layers,
-        instance_eval=options.instance_eval,
-        return_features=options.return_features,
-        attention_only=options.attention_only,
-        **streaming_options,
-    )
+    sclam_opts = {
+        "encoder": options.encoder,
+        "tile_size": options.tile_size,
+        "loss_fn": options.loss_fn,
+        "branch": options.branch,
+        "n_classes": options.num_classes,
+        "max_pool_kernel": options.max_pool_kernel,
+        "stream_max_pool_kernel": options.stream_max_pool_kernel,
+        "train_streaming_layers": options.train_streaming_layers,
+        "instance_eval": options.instance_eval,
+        "return_features": options.return_features,
+        "attention_only": options.attention_only,
+    }
 
+    if options.mode == "fit":
+        model = StreamingCLAM(
+            **sclam_opts,
+            **streaming_options,
+        )
+    else:
+        model = StreamingCLAM.load_from_checkpoint(
+            options.ckp_file,
+            **sclam_opts,
+            **streaming_options,
+        )
     return model
 
 
 if __name__ == "__main__":
+    pl.seed_everything(1)
     wandb_logger = WandbLogger(project="lightstreamingclam-test", save_dir="/home/stephandooper")
-
     # Read json config from file
     options = TrainConfig()
     parser = options.configure_parser_with_options()
     args = parser.parse_args()
     options.parser_to_options(vars(args))
-    pprint(options)
+    #pprint(options)
     streaming_options = get_streaming_options(options)
 
     model = configure_streamingclam(options, streaming_options)
@@ -164,19 +196,41 @@ if __name__ == "__main__":
         variable_input_shapes=options.variable_input_shapes,
         copy_to_gpu=options.copy_to_gpu,
         num_workers=options.num_workers,
-        transform=options.use_augmentations,
+        transform=augmentations if (options.use_augmentations and options.mode == "fit") else None,
     )
 
-    dm.setup(stage="fit")
+    dm.setup(stage=options.mode)
     trainer = configure_trainer(options)
-    print("trainer strategy", trainer.strategy)
-    last_checkpoint_path = configure_checkpoints()
-    # model.head = torch.compile(model.head)
-    # model.stream_network.stream_module = torch.compile(model.stream_network.stream_module)
-    # print(model.stream_network)
-    print("Starting training")
-    trainer.fit(
-        model=model,
-        datamodule=dm,
-        ckpt_path=last_checkpoint_path if (options.resume and last_checkpoint_path) else None,
-    )
+
+    if options.mode == "fit":
+        # log gradients, parameter histogram and model topology
+        if trainer.global_rank == 0:
+            wandb_logger.experiment.config.update(options.to_dict())
+
+        print("trainer strategy", trainer.strategy)
+        last_checkpoint_path = configure_checkpoints()
+        # model.head = torch.compile(model.head)
+        # model.stream_network.stream_module = torch.compile(model.stream_network.stream_module)
+        # print(model.stream_network)
+        print("Starting training")
+
+        trainer.fit(
+            model=model,
+            datamodule=dm,
+            ckpt_path=last_checkpoint_path if (options.resume and last_checkpoint_path) else None,
+        )
+
+
+    elif options.mode == "test":
+        checkpoint_path = configure_checkpoints()
+        trainer.test(
+            model=model,
+            datamodule=dm,
+        )
+
+    elif options.mode == "predict":
+        print("not implemented")
+    else:
+        raise ValueError("mode must be one of fit, test or predict, found {}".format(options.mode))
+
+# DO:
