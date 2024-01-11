@@ -11,6 +11,7 @@ pyvips.cache_set_max_mem(1024 * 1024)
 import torch
 import warnings
 
+from pprint import pprint
 from pathlib import Path
 from torch.utils.data import DataLoader
 
@@ -19,8 +20,6 @@ import lightning.pytorch as pl
 from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.callbacks import Callback
-from lightning.pytorch.strategies import DDPStrategy
-
 
 from streamingclam.options import TrainConfig
 from streamingclam.utils.memory_format import MemoryFormat
@@ -40,8 +39,11 @@ class PrintingCallback(Callback):
         self.options = options
 
     def setup(self, trainer, pl_module, stage):
-        print("Using configuration with the following options")
-        pl_module.print(self.options.to_dict())
+        pl_module.print(options)
+        pl_module.print(options.to_dict())
+        if trainer.global_rank == 0:
+            print("Using configuration with the following options")
+            pprint(options)
 
     def on_train_end(self, trainer, pl_module):
         print("Training is ending")
@@ -65,6 +67,7 @@ def configure_callbacks(options):
     return checkpoint_callback, finetune_cb, feature_cb
 
 
+
 def configure_checkpoints():
     try:
         # Check for last checkpoint
@@ -80,6 +83,7 @@ def configure_checkpoints():
 
 def configure_trainer(options):
     checkpoint_callback, finetune_cb, feature_cb = configure_callbacks(options)
+
     trainer = pl.Trainer(
         default_root_dir=options.default_save_dir,
         accelerator="gpu",
@@ -88,10 +92,10 @@ def configure_trainer(options):
         accumulate_grad_batches=options.grad_batches,
         precision=options.precision,
         callbacks=[checkpoint_callback, MemoryFormat(), finetune_cb, PrintingCallback(options), feature_cb],
-        strategy=DDPStrategy(gradient_as_bucket_view=True, find_unused_parameters=True),
-        benchmark=False,
         reload_dataloaders_every_n_epochs=options.unfreeze_streaming_layers_at_epoch,
-        num_sanity_val_steps=0,
+        strategy=options.strategy,
+        benchmark=False,
+        logger=wandb_logger
     )
     return trainer
 
@@ -154,6 +158,8 @@ def configure_streamingclam(options, streaming_options):
         "return_features": options.return_features,
         "return_resnet_features": options.mode == "featurize",
         "attention_only": options.attention_only,
+        "unfreeze_at_epoch": options.unfreeze_streaming_layers_at_epoch,
+        "learning_rate": options.learning_rate
     }
 
     if options.mode in ("fit", "featurize"):
@@ -211,7 +217,10 @@ if __name__ == "__main__":
     if options.mode == "fit":
         # log gradients, parameter histogram and model topology
         if trainer.global_rank == 0:
+            print("at rank 0, logging wandb config")
             wandb_logger.experiment.config.update(options.to_dict())
+            pprint(options)
+
 
         print("trainer strategy", trainer.strategy)
         last_checkpoint_path = configure_checkpoints()
