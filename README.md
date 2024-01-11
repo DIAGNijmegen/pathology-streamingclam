@@ -2,6 +2,16 @@
 Lightstream implementation of the StreamingCLAM model
 
 
+## Requirements
+The StreamingCLAM package requires the following dependencies:
+
+- Python3.10 or higher
+- lightstream
+- albumentationsxl
+- pytorch 2.0.0 or higher
+- pytorch lightning 2.0.
+- torchvision 
+
 ## Running StreamingCLAM
 
 To run the streamingclam, first git clone the repository, and optionally add it to your PYTHONPATH if needed:
