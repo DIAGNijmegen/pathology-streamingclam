@@ -9,6 +9,8 @@ from torchvision.models import resnet18, resnet34, resnet50
 from torchmetrics import MetricCollection
 from torchmetrics.classification import Accuracy, AUROC
 
+from torch.optim.lr_scheduler import LambdaLR
+
 
 # Streamingclam works with resnets, can be extended to other encoders if needed
 class CLAMConfig:
@@ -88,6 +90,8 @@ class StreamingCLAM(ImageNetClassifier):
         instance_eval: bool = False,
         return_features: bool = False,
         attention_only: bool = False,
+        unfreeze_at_epoch: int = 25,
+        learning_rate: float = 2e-4,
         **kwargs,
     ):
         self.stream_maxpool_kernel = stream_max_pool_kernel
@@ -95,6 +99,8 @@ class StreamingCLAM(ImageNetClassifier):
         self.instance_eval = instance_eval
         self.return_features = return_features
         self.attention_only = attention_only
+        self.unfreeze_at_epoch = unfreeze_at_epoch
+        self.learning_rate = learning_rate
 
         if self.max_pool_kernel < 0:
             raise ValueError(f"max_pool_kernel must be non-negative, found {max_pool_kernel}")
@@ -245,15 +251,11 @@ class StreamingCLAM(ImageNetClassifier):
         self.train_acc.update(torch.argmax(logits, dim=1).detach(), label.detach())
         self.train_auc.update(torch.sigmoid(logits)[:, 1].detach(), label.detach())
 
+        self.log("train_acc", self.train_acc, on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log("train_auc", self.train_auc, on_epoch=True, prog_bar=True, sync_dist=True)
+
         self.log("train_loss", loss.detach(), prog_bar=True, on_step=True, on_epoch=True, sync_dist=True)
         return loss
-
-    def on_train_epoch_end(self):
-        self.log("train_acc_epoch", self.train_acc.compute(), prog_bar=True, sync_dist=True)
-        self.log("train_auc_epoch", self.train_auc.compute(), prog_bar=True, sync_dist=True)
-
-        self.train_acc.reset()
-        self.train_auc.reset()
 
     def validation_step(self, batch, batch_idx):
         loss, y_hat, label, fname = self._shared_eval_step(batch, batch_idx)
@@ -265,14 +267,11 @@ class StreamingCLAM(ImageNetClassifier):
         # Should update and clear automatically, as per
         # https://torchmetrics.readthedocs.io/en/stable/pages/lightning.html
         # https: // lightning.ai / docs / pytorch / stable / extensions / logging.html
+
+        self.log("valid_acc", self.val_acc, on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log("valid_auc", self.val_acc, on_epoch=True, prog_bar=True, sync_dist=True)
+
         self.log("val_loss", loss, prog_bar=True, on_epoch=True, sync_dist=True)
-
-    def on_validation_epoch_end(self):
-        self.log("val_acc_epoch", self.val_acc.compute(), sync_dist=True)
-        self.log("val_auc_epoch", self.val_auc.compute(), sync_dist=True)
-
-        self.val_acc.reset()
-        self.val_auc.reset()
 
     def test_step(self, batch, batch_idx):
         loss, y_hat, label, fname = self._shared_eval_step(batch, batch_idx)
@@ -324,8 +323,31 @@ class StreamingCLAM(ImageNetClassifier):
         self.streaming_options = {**streaming_options, **kwargs}
 
     def configure_optimizers(self):
-        opt = torch.optim.Adam(self.params, lr=1e-4, weight_decay=1e-5)
-        return opt
+        optimizer = torch.optim.AdamW(self.params, lr=self.learning_rate, weight_decay=1e-5)
+
+        def lr_lambda(epoch):
+            if epoch < self.unfreeze_at_epoch:
+                return 1
+            else:
+                # Example: increase LR each step after epoch 10
+                return 0.1
+
+        lr_scheduler = {
+            "scheduler": torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda),
+            "name": "lr_scheduler",
+        }
+
+        return [optimizer], [lr_scheduler]
+
+    @property
+    def num_steps(self) -> int:
+        """Get number of steps"""
+        # Accessing _data_source is flaky and might break
+        dataset = self.trainer.fit_loop._data_source.dataloader()
+        dataset_size = len(dataset)
+        num_devices = max(1, self.trainer.num_devices)
+        num_steps = dataset_size * self.trainer.max_epochs // (self.trainer.accumulate_grad_batches * num_devices)
+        return num_steps
 
     def backward(self, loss):
         loss.backward()
