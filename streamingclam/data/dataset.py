@@ -17,7 +17,6 @@ augmentations = A.Compose(
         A.HueSaturationValue(p=0.5),
         A.OneOrOther(A.OneOf([A.Blur(), A.GaussianBlur(sigma_limit=7)]), A.Sharpen()),
         A.Rotate(),
-        ),
     ],
 )
 
