@@ -6,10 +6,9 @@
   <component name="BlackConnectSettings" lineLength="120" />
   <component name="ChangeListManager">
     <list default="true" id="c40c14e8-1902-4bfb-a914-d9d8cb02a700" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/streamingclam/.gitignore" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/deployment.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/deployment.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/streamingclam/models/sclam.py" beforeDir="false" afterPath="$PROJECT_DIR$/streamingclam/models/sclam.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/streamingclam/utils/feature_writer.py" beforeDir="false" afterPath="$PROJECT_DIR$/streamingclam/utils/feature_writer.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -47,13 +46,13 @@
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "WebServerToolWindowFactoryState": "true",
     "git-widget-placeholder": "featurizer",
-    "last_opened_file_path": "C:/Users/Stephan/Desktop/Projects/pathology-streamingclam",
+    "last_opened_file_path": "C:/Users/Stephan/Desktop/projects/pathology-streamingclam",
     "node.js.detected.package.eslint": "true",
     "node.js.detected.package.tslint": "true",
     "node.js.selected.package.eslint": "(autodetect)",
     "node.js.selected.package.tslint": "(autodetect)",
     "nodejs_package_manager_path": "npm",
-    "settings.editor.selected.configurable": "com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable",
+    "settings.editor.selected.configurable": "web.server",
     "vue.rearranger.settings.migration": "true"
   }
 }]]></component>
@@ -146,7 +145,6 @@
         <env name="VIPS_CONCURRENCY" value="30" />
       </envs>
       <option name="SDK_HOME" value="" />
-      <option name="SDK_NAME" value="Remote Python 3.11.3 (sftp://stephandooper@dlc-moltres:2222/home/stephandooper/.virtualenvs/pathology-streamingclam/bin/python)" />
       <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
       <option name="IS_MODULE_SDK" value="false" />
       <option name="ADD_CONTENT_ROOTS" value="true" />
@@ -204,7 +202,7 @@
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
-        <option value="bundled-python-sdk-50da183f06c8-2887949eec09-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-233.13135.95" />
+        <option value="bundled-python-sdk-7a29c1521ef0-c986f194a52a-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-233.11799.298" />
       </set>
     </attachedChunks>
   </component>
@@ -236,6 +234,7 @@
       <workItem from="1704714423195" duration="10941000" />
       <workItem from="1704879492662" duration="15054000" />
       <workItem from="1704975366943" duration="11971000" />
+      <workItem from="1705014673143" duration="403000" />
     </task>
     <servers />
   </component>
