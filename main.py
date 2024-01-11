@@ -38,7 +38,7 @@ class PrintingCallback(Callback):
 
     def setup(self, trainer, pl_module, stage):
         print("Using configuration with the following options")
-        pl_module.print(self.options)
+        pl_module.print(self.options.to_dict())
 
     def on_train_end(self, trainer, pl_module):
         print("Training is ending")
