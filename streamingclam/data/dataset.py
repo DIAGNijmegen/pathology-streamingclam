@@ -16,11 +16,7 @@ augmentations = A.Compose(
         A.RandomBrightnessContrast(brightness_limit=0.1, contrast_limit=0.2),
         A.HueSaturationValue(p=0.5),
         A.OneOrOther(A.OneOf([A.Blur(), A.GaussianBlur(sigma_limit=7)]), A.Sharpen()),
-        A.OneOf(
-            [
-                A.Rotate(),
-                A.Affine(rotate=(-90, 90), translate_percent=(0, 0.1), shear=(-10, 10), cval_mask=[0, 0, 0], p=0.3),
-            ]
+        A.Rotate(),
         ),
     ],
 )
