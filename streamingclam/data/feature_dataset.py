@@ -1,41 +1,33 @@
-import pyvips
-import torch
 import math
-
-import pandas as pd
-
+import pyvips
 from pathlib import Path
-from torch.utils.data import Dataset
 import albumentationsxl as A
 
-augmentations = A.Compose(
-    [
-        A.Flip(),
-        A.RandomGamma(gamma_limit=(75, 125)),
-        A.RandomBrightnessContrast(brightness_limit=0.1, contrast_limit=0.2),
-        A.HueSaturationValue(p=0.5),
-        A.OneOrOther(A.OneOf([A.Blur(), A.GaussianBlur(sigma_limit=7)]), A.Sharpen()),
-        A.Rotate(),
-    ],
-)
+from torch.utils.data import Dataset
 
 
-class StreamingClassificationDataset(Dataset):
+class FeatureDataset(Dataset):
+    """ Dataset class for backbone feature extraction
+    This dataset simply opens an image at a given read_level, applies cropping/padding to play nicely with streaming
+    and then returns it. Optionally, masks can also be provided
+
+    Augmentations are not applied, nor is there any class or label
+
+    """
+
     def __init__(
-        self,
-        img_dir: Path | str,
-        csv_file: str,
-        tile_size: int,
-        img_size: int,
-        read_level: int,
-        transform: A.BaseCompose | None = None,
-        mask_dir: Path | str | None = None,
-        mask_suffix: str = "_tissue",
-        variable_input_shapes: bool = False,
-        tile_stride: int | None = None,
-        network_output_stride: int = 1,
-        filetype=".tif",
-    ):
+            self,
+            img_dir: Path | str,
+            tile_size: int,
+            img_size: int,
+            read_level: int,
+            mask_dir: Path | str | None = None,
+            mask_suffix: str = "_tissue",
+            variable_input_shapes: bool = False,
+            tile_stride: int | None = None,
+            network_output_stride: int = 1,
+            filetype: str = ".tif"):
+
         self.img_dir = Path(img_dir)
         self.filetype = filetype
         self.mask_dir = Path(mask_dir) if mask_dir else None
@@ -48,74 +40,41 @@ class StreamingClassificationDataset(Dataset):
         self.img_size = img_size
 
         self.variable_input_shapes = variable_input_shapes
-        self.transform = transform
-
-        self.classification_frame = pd.read_csv(csv_file)
-
-        # Will be populated in check_csv function
-        self.data_paths = {"images": [], "masks": [], "labels": []}
 
         self.random_crop = A.RandomCrop(self.img_size, self.img_size, p=1.0)
         if not self.img_dir.exists():
-            raise FileNotFoundError(f"Directory {self.img_dir} not found or doesn't exist")
-        self.check_csv()
+            raise NotADirectoryError(f"Directory {self.img_dir} not found or doesn't exist")
+        if not self.mask_dir.exists() and self.mask_dir is not None:
+            raise NotADirectoryError(f"Directory {self.img_dir} not found or doesn't exist")
 
-        self.labels = self.data_paths["labels"]
+        self.images = list(self.img_dir.rglob(f"*{filetype}"))
 
-    def check_csv(self):
-        """Check if entries in csv file exist"""
-
-        included = {"images": [], "masks": [], "labels": []} if self.mask_dir else {"images": [], "labels": []}
-        for i in range(len(self)):
-            images, label = self.get_img_path(i)  #
-
-            # Files can be just images, but also image, mask
-            for file in images:
-                if not file.exists():
-                    print(f"WARNING {file} not found, excluded both image and mask (if present)!")
-                    continue
-
-            included["images"].append(images[0])
-            included["labels"].append(label)
-
-            if self.mask_dir:
-                included["masks"].append(images[1])
-
-        self.data_paths = included
-
-    def get_img_path(self, idx):
-        img_fname = self.classification_frame.iloc[idx, 0]
-        label = self.classification_frame.iloc[idx, 1]
-
-        img_path = self.img_dir / Path(img_fname).with_suffix(self.filetype)
-
-        if self.mask_dir:
-            mask_path = self.mask_dir / Path(img_fname + self.mask_suffix).with_suffix(self.filetype)
-            return [img_path, mask_path], label
-
-        return [img_path], label
 
     def get_img_pairs(self, idx):
-        images = {"image": None, "mask": None}
+        images = {"image": None, "mask":None}
+        fnames = {"image_fname": None, "mask_fname" : None}
 
-        img_fname = str(self.data_paths["images"][idx])
-        label = int(self.data_paths["labels"][idx])
-        image = pyvips.Image.new_from_file(img_fname, page=self.read_level)
+        img_path = self.images[idx]
+        img_fname = img_path.stem
+        image = pyvips.Image.new_from_file(str(img_path), page=self.read_level, access="sequential")
         images["image"] = image
+        fnames["image_fname"] = img_fname
 
-        if self.mask_dir:
-            mask_fname = str(self.data_paths["masks"][idx])
-            mask = pyvips.Image.new_from_file(mask_fname)
+        if self.mask_dir is not None:
+            mask_fname = img_fname + self.mask_suffix
+            mask_path = self.mask_dir / Path(mask_fname).with_suffix(self.filetype)
+            mask = pyvips.Image.new_from_file(mask_path)
             ratio = image.width / mask.width
+            # could be done more efficiently here
             images["mask"] = mask.resize(ratio, kernel="nearest")  # Resize mask to img size
+            fnames["mask_fname"] = mask_fname
 
-        return images, label, img_fname
+        return images, fnames
+
+
 
     def __getitem__(self, idx):
-        sample, label, img_fname = self.get_img_pairs(idx)
-
-        if self.transform:
-            sample = self.transform(**sample)
+        sample, fnames = self.get_img_pairs(idx)
 
         pad_to_tile_size = sample["image"].width < self.tile_size or sample["image"].height < self.tile_size
         # Get the resize op depending on image size
@@ -123,7 +82,7 @@ class StreamingClassificationDataset(Dataset):
         sample = resize_op(**sample)
 
         # if after padding to the tile stride the image is bigger than img_size, crop it (upper bound on memory)
-        if sample["image"].width * sample["image"].height > self.img_size**2:
+        if sample["image"].width * sample["image"].height > self.img_size ** 2:
             sample = self.random_crop(**sample)
 
         # Masks don't need to be really large for tissues, so scale them back
@@ -145,10 +104,10 @@ class StreamingClassificationDataset(Dataset):
         if sample["mask"] is not None:
             sample["mask"] = sample["mask"] >= 1
 
-        return sample, torch.tensor(label), Path(img_fname).stem
+        return sample, fnames
 
     def __len__(self):
-        return len(self.classification_frame)
+        return len(self.images)
 
     def get_resize_op(self, pad_to_tile_size=False):
         if not self.variable_input_shapes:
@@ -179,20 +138,15 @@ class StreamingClassificationDataset(Dataset):
             ]
         )
 
-
-
 if __name__ == "__main__":
     root = Path("/data/pathology/projects/pathology-bigpicture-streamingclam")
     data_path = root / Path("data/breast/camelyon_packed_0.25mpp_tif/images")
     mask_path = root / Path("data/breast/camelyon_packed_0.25mpp_tif/images_tissue_masks")
-    csv_file = root / Path("streaming_experiments/camelyon/data_splits/train_0.csv")
 
-    dataset = StreamingClassificationDataset(
+    dataset = FeatureDataset(
         img_dir=str(data_path),
-        csv_file=str(csv_file),
         tile_size=1600,
         img_size=1600,
-        transform=augmentations,
         mask_dir=mask_path,
         mask_suffix="_tissue",
         variable_input_shapes=False,
@@ -205,7 +159,7 @@ if __name__ == "__main__":
 
     ds = iter(dataset)
     print("Creating dataset")
-    sample, label, name = next(ds)
+    sample, name = next(ds)
     print("retrieving image")
     image = sample["image"]
     mask = sample["mask"]

@@ -14,7 +14,7 @@ class TrainConfig:
     val_csv: str = ""
     test_csv: str = ""
     mask_suffix: str = "_tissue"  # the suffix for mask tissues e.g. tumor_069_<mask_suffix>.tif
-    mode: str = "fit"  # fit, validation, test or predict
+    mode: str = "fit"  # fit, validation, test, featurize or predict
     unfreeze_streaming_layers_at_epoch: int = 20
 
     # Trainer options

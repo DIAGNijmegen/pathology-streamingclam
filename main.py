@@ -12,7 +12,8 @@ import torch
 import warnings
 
 from pathlib import Path
-from pprint import pprint
+from torch.utils.data import DataLoader
+
 
 import lightning.pytorch as pl
 from lightning.pytorch.callbacks import ModelCheckpoint
@@ -26,6 +27,7 @@ from streamingclam.utils.memory_format import MemoryFormat
 from streamingclam.utils.finetune import FeatureExtractorFreezeUnfreeze
 from streamingclam.data.splits import StreamingCLAMDataModule
 from streamingclam.data.dataset import augmentations
+from streamingclam.data.feature_dataset import FeatureDataset
 from streamingclam.models.sclam import StreamingCLAM
 
 torch.set_float32_matmul_precision("medium")
@@ -147,6 +149,7 @@ def configure_streamingclam(options, streaming_options):
         "train_streaming_layers": options.train_streaming_layers,
         "instance_eval": options.instance_eval,
         "return_features": options.return_features,
+        "return_resnet_features": options.stage == "featurize",
         "attention_only": options.attention_only,
     }
 
@@ -230,7 +233,45 @@ if __name__ == "__main__":
 
     elif options.mode == "predict":
         print("not implemented")
+
+    elif options.mode == "featurize":
+        """
+        This mode will take all the images in the image directory specified in image_dir and optionally mask_dir
+        Then, images will be parsed through the ResNet network and max pooling blocks. The resulting feature maps
+        are then saved as <image_name>.pt  and <image_name_mask>.pt files in default_root_dir/features_<encoder>
+        """
+        feature_dataset = FeatureDataset(
+            img_dir=options.image_path,
+            tile_size=options.tile_size,
+            img_size=options.image_size,
+            mask_dir=options.mask_path,
+            mask_suffix=options.mask_suffix,
+            variable_input_shapes=options.variable_input_shapes,
+            tile_stride=options.tile_stride,
+            filetype=options.filetype,
+            read_level=options.read_level,
+        )
+
+        feature_dataloader = DataLoader(
+            feature_dataset,
+            num_workers=options.num_workers,
+            shuffle=False,
+            prefetch_factor=1,
+            pin_memory=False,
+            batch_size=1,
+        )
+
+        # Will return imagenet features by default
+        trainer.predict(
+            model=model,
+            dataloaders=feature_dataloader,
+            ckpt_path=None #last_checkpoint_path if (options.resume and last_checkpoint_path) else None,
+        )
+
+    
+
     else:
         raise ValueError("mode must be one of fit, test or predict, found {}".format(options.mode))
 
-# DO:
+
+

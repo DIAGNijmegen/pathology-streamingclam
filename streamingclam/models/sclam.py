@@ -40,6 +40,8 @@ class CLAMConfig:
     def configure_size(self):
         if self.encoder == "resnet50":
             return [2048, 512, 256]
+        elif self.encoder == "resnet39":
+            return [1024, 512, 256]
         elif self.encoder in ("resnet18", "resnet34"):
             return [512, 512, 256]
 
@@ -75,7 +77,8 @@ class CLAMConfig:
 
 
 class StreamingCLAM(ImageNetClassifier):
-    model_choices = {"resnet18": resnet18, "resnet34": resnet34, "resnet50": resnet50}
+    # Resnet39 is just resnet50 with the last block removed (this is actually what CLAM did).
+    model_choices = {"resnet18": resnet18, "resnet34": resnet34, "resnet39": resnet50, "resnet50": resnet50}
 
     def __init__(
         self,
@@ -88,6 +91,7 @@ class StreamingCLAM(ImageNetClassifier):
         stream_max_pool_kernel: bool = False,
         train_streaming_layers: bool = False,
         instance_eval: bool = False,
+        return_resnet_features: bool = False,
         return_features: bool = False,
         attention_only: bool = False,
         unfreeze_at_epoch: int = 25,
@@ -97,6 +101,7 @@ class StreamingCLAM(ImageNetClassifier):
         self.stream_maxpool_kernel = stream_max_pool_kernel
         self.max_pool_kernel = max_pool_kernel
         self.instance_eval = instance_eval
+        self.return_resnet_features = return_resnet_features
         self.return_features = return_features
         self.attention_only = attention_only
         self.unfreeze_at_epoch = unfreeze_at_epoch
@@ -111,6 +116,10 @@ class StreamingCLAM(ImageNetClassifier):
 
         # Define the streaming network and head
         network = StreamingCLAM.model_choices[encoder](weights="IMAGENET1K_V1")
+
+        if encoder == "resnet39":
+            model.layer4 = torch.nn.Sequential()
+
         stream_net, _ = split_resnet(network)
         head = CLAMConfig(encoder=encoder, branch=branch, n_classes=n_classes).configure_clam()
 
@@ -186,12 +195,19 @@ class StreamingCLAM(ImageNetClassifier):
         instance_eval=False,
         label=None,
         return_features=False,
+        return_resnet_features=False,
         attention_only=False,
     ):
         batch_size, num_features, h, w = fmap.shape
 
         if self.ds_blocks is not None:
             fmap = self.ds_blocks(fmap)
+
+        if return_resnet_features:
+            features = {"fmap": fmap, "mask": None}
+            if mask is not None:
+                features["mask"] = mask
+            return features
 
         # Mask background, can heavily reduce inputs to clam network
         if mask is not None:
@@ -226,8 +242,10 @@ class StreamingCLAM(ImageNetClassifier):
             fmap,
             mask=mask,
             return_features=self.return_features,
+            return_resnet_features=self.return_resnet_features,
             attention_only=self.attention_only,
         )
+
         return out
 
     def training_step(self, batch, batch_idx: int, *args, **kwargs):
@@ -243,8 +261,6 @@ class StreamingCLAM(ImageNetClassifier):
             mask=mask,
             instance_eval=self.instance_eval,
             label=label if self.instance_eval else None,
-            return_features=self.return_features,
-            attention_only=self.attention_only,
         )
 
         loss = self.loss_fn(logits, label)
@@ -298,6 +314,13 @@ class StreamingCLAM(ImageNetClassifier):
 
         return outputs
 
+    def predict_step(self, batch, batch_idx, dataloader_idx):
+        if self.return_resnet_features:
+            images, names = batch
+            out_features = self.forward(images["image"].to("cpu"), mask=images["mask"])
+
+            return out_features
+
     def _shared_eval_step(self, batch, batch_idx):
         image, mask, label, fname = batch[0]["image"], batch[0]["mask"], batch[1], batch[2]
         image = image.to("cpu")
@@ -338,6 +361,7 @@ class StreamingCLAM(ImageNetClassifier):
         }
 
         return [optimizer], [lr_scheduler]
+
 
     @property
     def num_steps(self) -> int:
