@@ -329,8 +329,8 @@ class StreamingCLAM(ImageNetClassifier):
             if epoch < self.unfreeze_at_epoch:
                 return 1
             else:
-                # Example: increase LR each step after epoch 10
-                return 0.1
+                # halve the learning rate when switching to training all layers
+                return 0.5
 
         lr_scheduler = {
             "scheduler": torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda),
