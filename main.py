@@ -29,6 +29,7 @@ from streamingclam.data.splits import StreamingCLAMDataModule
 from streamingclam.data.dataset import augmentations
 from streamingclam.data.feature_dataset import FeatureDataset
 from streamingclam.models.sclam import StreamingCLAM
+from streamingclam.utils.feature_writer import FeatureWriter
 
 torch.set_float32_matmul_precision("medium")
 
@@ -40,7 +41,7 @@ class PrintingCallback(Callback):
 
     def setup(self, trainer, pl_module, stage):
         print("Using configuration with the following options")
-        pl_module.print(self.options)
+        pl_module.print(self.options.to_dict())
 
     def on_train_end(self, trainer, pl_module):
         print("Training is ending")
@@ -57,8 +58,11 @@ def configure_callbacks(options):
         verbose=True,
     )
 
+    save_dir = str(Path(options.default_save_dir) / Path(options.encoder + "_features"))
+    feature_cb = FeatureWriter(output_dir=str(save_dir), write_interval="batch")
+
     finetune_cb = FeatureExtractorFreezeUnfreeze(options.unfreeze_streaming_layers_at_epoch)
-    return checkpoint_callback, finetune_cb
+    return checkpoint_callback, finetune_cb, feature_cb
 
 
 def configure_checkpoints():
@@ -75,7 +79,7 @@ def configure_checkpoints():
 
 
 def configure_trainer(options):
-    checkpoint_callback, finetune_cb = configure_callbacks(options)
+    checkpoint_callback, finetune_cb, feature_cb = configure_callbacks(options)
     trainer = pl.Trainer(
         default_root_dir=options.default_save_dir,
         accelerator="gpu",
@@ -83,12 +87,11 @@ def configure_trainer(options):
         devices=options.num_gpus,
         accumulate_grad_batches=options.grad_batches,
         precision=options.precision,
-        callbacks=[checkpoint_callback, MemoryFormat(), finetune_cb, PrintingCallback(options)],
+        callbacks=[checkpoint_callback, MemoryFormat(), finetune_cb, PrintingCallback(options), feature_cb],
         strategy=DDPStrategy(gradient_as_bucket_view=True, find_unused_parameters=True),
         benchmark=False,
         reload_dataloaders_every_n_epochs=options.unfreeze_streaming_layers_at_epoch,
         num_sanity_val_steps=0,
-        logger=wandb_logger
     )
     return trainer
 
@@ -149,11 +152,11 @@ def configure_streamingclam(options, streaming_options):
         "train_streaming_layers": options.train_streaming_layers,
         "instance_eval": options.instance_eval,
         "return_features": options.return_features,
-        "return_resnet_features": options.stage == "featurize",
+        "return_resnet_features": options.mode == "featurize",
         "attention_only": options.attention_only,
     }
 
-    if options.mode == "fit":
+    if options.mode in ("fit", "featurize"):
         model = StreamingCLAM(
             **sclam_opts,
             **streaming_options,

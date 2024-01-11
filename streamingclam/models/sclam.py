@@ -314,12 +314,12 @@ class StreamingCLAM(ImageNetClassifier):
 
         return outputs
 
-    def predict_step(self, batch, batch_idx, dataloader_idx):
+    def predict_step(self, batch, batch_idx, dataloader_idx=0):
         if self.return_resnet_features:
             images, names = batch
             out_features = self.forward(images["image"].to("cpu"), mask=images["mask"])
 
-            return out_features
+            return out_features, names
 
     def _shared_eval_step(self, batch, batch_idx):
         image, mask, label, fname = batch[0]["image"], batch[0]["mask"], batch[1], batch[2]
