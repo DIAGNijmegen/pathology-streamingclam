@@ -118,7 +118,7 @@ class StreamingCLAM(ImageNetClassifier):
         network = StreamingCLAM.model_choices[encoder](weights="IMAGENET1K_V1")
 
         if encoder == "resnet39":
-            model.layer4 = torch.nn.Sequential()
+            network.layer4 = torch.nn.Sequential()
 
         stream_net, _ = split_resnet(network)
         head = CLAMConfig(encoder=encoder, branch=branch, n_classes=n_classes).configure_clam()

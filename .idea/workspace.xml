@@ -6,9 +6,10 @@
   <component name="BlackConnectSettings" lineLength="120" />
   <component name="ChangeListManager">
     <list default="true" id="c40c14e8-1902-4bfb-a914-d9d8cb02a700" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/streamingclam/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/streamingclam/models/sclam.py" beforeDir="false" afterPath="$PROJECT_DIR$/streamingclam/models/sclam.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/streamingclam/utils/finetune.py" beforeDir="false" afterPath="$PROJECT_DIR$/streamingclam/utils/finetune.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -41,7 +42,7 @@
   "keyToString": {
     "Python.dataset (1).executor": "Run",
     "Python.feature_dataset.executor": "Run",
-    "Python.main.executor": "Debug",
+    "Python.main.executor": "Run",
     "RunOnceActivity.OpenProjectViewOnStart": "true",
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "WebServerToolWindowFactoryState": "true",
@@ -52,7 +53,7 @@
     "node.js.selected.package.eslint": "(autodetect)",
     "node.js.selected.package.tslint": "(autodetect)",
     "nodejs_package_manager_path": "npm",
-    "settings.editor.selected.configurable": "web.server",
+    "settings.editor.selected.configurable": "project.propVCSSupport.Mappings",
     "vue.rearranger.settings.migration": "true"
   }
 }]]></component>
@@ -61,6 +62,7 @@
       <recent name="C:\Users\Stephan\Desktop\Projects\pathology-streamingclam\streamingclam" />
     </key>
     <key name="MoveFile.RECENT_KEYS">
+      <recent name="C:\Users\Stephan\Desktop\projects\pathology-streamingclam" />
       <recent name="C:\Users\Stephan\Desktop\Projects\pathology-streamingclam" />
     </key>
   </component>
@@ -145,13 +147,14 @@
         <env name="VIPS_CONCURRENCY" value="30" />
       </envs>
       <option name="SDK_HOME" value="" />
+      <option name="SDK_NAME" value="Remote Python 3.11.3 (sftp://stephandooper@dlc-moltres:2222/home/stephandooper/.virtualenvs/pathology-streamingclam/bin/python)" />
       <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
       <option name="IS_MODULE_SDK" value="false" />
       <option name="ADD_CONTENT_ROOTS" value="true" />
       <option name="ADD_SOURCE_ROOTS" value="true" />
       <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
       <option name="SCRIPT_NAME" value="$PROJECT_DIR$/main.py" />
-      <option name="PARAMETERS" value="--image_path=/data/pathology/projects/pathology-bigpicture-streamingclam/data/breast/camelyon_packed_0.25mpp_tif/images --mask_path=/data/pathology/projects/pathology-bigpicture-streamingclam/data/breast/camelyon_packed_0.25mpp_tif/images_tissue_masks --train_csv=/data/pathology/projects/pathology-bigpicture-streamingclam/streaming_experiments/camelyon/data_splits/train_debug.csv --val_csv=/data/pathology/projects/pathology-bigpicture-streamingclam/streaming_experiments/camelyon/data_splits/val_debug.csv --test_csv=/data/pathology/projects/pathology-bigpicture-streamingclam/streaming_experiments/camelyon/data_splits/test.csv --read_level=4 --image_size=8192 --tile_size=3200 --mode=featurize --num_gpus=1" />
+      <option name="PARAMETERS" value="--image_path=/data/pathology/projects/pathology-bigpicture-streamingclam/data/breast/camelyon_packed_0.25mpp_tif/images --mask_path=/data/pathology/projects/pathology-bigpicture-streamingclam/data/breast/camelyon_packed_0.25mpp_tif/images_tissue_masks --train_csv=/data/pathology/projects/pathology-bigpicture-streamingclam/streaming_experiments/camelyon/data_splits/train_debug.csv --val_csv=/data/pathology/projects/pathology-bigpicture-streamingclam/streaming_experiments/camelyon/data_splits/val_debug.csv --test_csv=/data/pathology/projects/pathology-bigpicture-streamingclam/streaming_experiments/camelyon/data_splits/test.csv --read_level=1 --image_size=65536 --tile_size=3200 --mode=featurize --num_workers=1 --encoder=resnet39 --num_gpus=1" />
       <option name="SHOW_COMMAND_LINE" value="false" />
       <option name="EMULATE_TERMINAL" value="false" />
       <option name="MODULE_MODE" value="false" />
@@ -183,9 +186,9 @@
       <method v="2" />
     </configuration>
     <list>
-      <item itemvalue="Python.feature_dataset" />
-      <item itemvalue="Python.dataset" />
       <item itemvalue="Python.dataset (1)" />
+      <item itemvalue="Python.dataset" />
+      <item itemvalue="Python.feature_dataset" />
       <item itemvalue="Python.main" />
       <item itemvalue="Python.sclam" />
     </list>
@@ -198,13 +201,6 @@
         <item itemvalue="Python.sclam" />
       </list>
     </recent_temporary>
-  </component>
-  <component name="SharedIndexes">
-    <attachedChunks>
-      <set>
-        <option value="bundled-python-sdk-7a29c1521ef0-c986f194a52a-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-233.11799.298" />
-      </set>
-    </attachedChunks>
   </component>
   <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
   <component name="TaskManager">
@@ -234,7 +230,12 @@
       <workItem from="1704714423195" duration="10941000" />
       <workItem from="1704879492662" duration="15054000" />
       <workItem from="1704975366943" duration="11971000" />
-      <workItem from="1705014673143" duration="968000" />
+      <workItem from="1705014673143" duration="1400000" />
+      <workItem from="1705016088894" duration="133000" />
+      <workItem from="1705016223549" duration="1749000" />
+      <workItem from="1705018273049" duration="57000" />
+      <workItem from="1705018331760" duration="17000" />
+      <workItem from="1705018355460" duration="2948000" />
     </task>
     <servers />
   </component>
@@ -265,16 +266,6 @@
           <line>76</line>
           <option name="timeStamp" value="6" />
         </line-breakpoint>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/streamingclam/utils/feature_writer.py</url>
-          <line>24</line>
-          <option name="timeStamp" value="9" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/streamingclam/utils/feature_writer.py</url>
-          <line>19</line>
-          <option name="timeStamp" value="11" />
-        </line-breakpoint>
       </breakpoints>
     </breakpoint-manager>
   </component>
@@ -283,6 +274,6 @@
     <SUITE FILE_PATH="coverage/pathology_streamingclam$dataset__1_.coverage" NAME="dataset (1) Coverage Results" MODIFIED="1704986865440" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/streamingclam/data" />
     <SUITE FILE_PATH="coverage/pathology_streamingclam$feature_dataset.coverage" NAME="feature_dataset Coverage Results" MODIFIED="1704987246970" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/streamingclam/data" />
     <SUITE FILE_PATH="coverage/pathology_streamingclam$dataset.coverage" NAME="dataset Coverage Results" MODIFIED="1703250945176" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/streamingclam/dataloaders" />
-    <SUITE FILE_PATH="coverage/pathology_streamingclam$main.coverage" NAME="main Coverage Results" MODIFIED="1704990955989" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/pathology_streamingclam$main.coverage" NAME="main Coverage Results" MODIFIED="1705019291304" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
   </component>
 </project>

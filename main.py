@@ -184,7 +184,7 @@ if __name__ == "__main__":
     parser = options.configure_parser_with_options()
     args = parser.parse_args()
     options.parser_to_options(vars(args))
-    #pprint(options)
+    pprint(options)
     streaming_options = get_streaming_options(options)
 
     model = configure_streamingclam(options, streaming_options)
@@ -279,8 +279,6 @@ if __name__ == "__main__":
             dataloaders=feature_dataloader,
             ckpt_path=None #last_checkpoint_path if (options.resume and last_checkpoint_path) else None,
         )
-
-    
 
     else:
         raise ValueError("mode must be one of fit, test or predict, found {}".format(options.mode))
