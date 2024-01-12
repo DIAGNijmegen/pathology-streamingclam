@@ -17,9 +17,11 @@ class FeatureWriter(BasePredictionWriter):
         images = prediction[0]
         names = prediction[1]
 
+        images = {images["fmap"].detach(), images["mask"].detach()}
         out_file = Path(self.output_dir) / Path(names["image_fname"][0]).with_suffix(".pt")
 
         torch.save(images, out_file)
+        del images, names, out_file, batch
 
     def write_on_epoch_end(self, trainer, pl_module, predictions, batch_indices):
         print("HI")

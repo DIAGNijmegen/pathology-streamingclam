@@ -180,12 +180,13 @@ class StreamingCLAM(ImageNetClassifier):
 
     def add_maxpool_layers(self, network):
         ds_blocks = torch.nn.Sequential(
-            torch.nn.MaxPool2d((self.max_pool_kernel, self.max_pool_kernel), ceil_mode=True)
+            torch.nn.MaxPool2d(self.max_pool_kernel, stride=self.max_pool_kernel, ceil_mode=True)
         )
 
         if self.stream_maxpool_kernel:
             return torch.nn.Sequential(network, ds_blocks)
         else:
+
             return ds_blocks, network
 
     def forward_head(

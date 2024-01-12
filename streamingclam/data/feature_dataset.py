@@ -1,5 +1,6 @@
 import math
 import pyvips
+import pandas as pd
 from pathlib import Path
 import albumentationsxl as A
 
@@ -26,12 +27,14 @@ class FeatureDataset(Dataset):
             variable_input_shapes: bool = False,
             tile_stride: int | None = None,
             network_output_stride: int = 1,
+            output_dir: str | Path | None = None,
             filetype: str = ".tif"):
 
         self.img_dir = Path(img_dir)
         self.filetype = filetype
         self.mask_dir = Path(mask_dir) if mask_dir else None
         self.mask_suffix = mask_suffix
+        self.output_dir = Path(output_dir)
 
         self.read_level = read_level
         self.tile_size = tile_size
@@ -48,6 +51,9 @@ class FeatureDataset(Dataset):
             raise NotADirectoryError(f"Directory {self.img_dir} not found or doesn't exist")
 
         self.images = list(self.img_dir.rglob(f"*{filetype}"))
+
+        if self.output_dir is not None:
+            self.filter_images()
 
 
     def get_img_pairs(self, idx):
@@ -72,6 +78,15 @@ class FeatureDataset(Dataset):
         return images, fnames
 
 
+    def filter_images(self):
+        """ Filter images that have already been processed in output_dir
+        """
+
+        out_files_present = list(self.output_dir.rglob("*.pt"))
+        out_file_names = [x.stem for x in out_files_present]
+        already_processed = [self.images[0].parent / Path(x).with_suffix(self.filetype) for x in out_file_names]
+
+        self.images = list(set(self.images) - set(already_processed))
 
     def __getitem__(self, idx):
         sample, fnames = self.get_img_pairs(idx)

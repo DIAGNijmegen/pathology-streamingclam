@@ -262,6 +262,7 @@ if __name__ == "__main__":
             tile_stride=options.tile_stride,
             filetype=options.filetype,
             read_level=options.read_level,
+            output_dir= str(Path(options.default_save_dir) / Path(options.encoder + "_features"))
         )
 
         feature_dataloader = DataLoader(
