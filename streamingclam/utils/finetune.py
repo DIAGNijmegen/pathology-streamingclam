@@ -15,7 +15,7 @@ class FeatureExtractorFreezeUnfreeze(BaseFinetuning):
                  backbone_initial_ratio_lr: float = 1e-2,
                  rounding: int = 12,
                  should_align: bool = True,
-                 verbose: bool = False):
+                 verbose: bool = True):
         super().__init__()
         print("unfreezing streaming network at epoch", unfreeze_at_epoch)
         self._unfreeze_at_epoch = unfreeze_at_epoch
