@@ -70,7 +70,8 @@ class CLAMConfig:
             )
         else:
             raise NotImplementedError(
-                f"branch must be specified as single-branch " f"'sb' or multi-branch 'mb', not {self.branch}"
+                f"branch must be specified as single-branch "
+                f"'sb' or multi-branch 'mb', not {self.branch}"
             )
 
 
@@ -90,7 +91,6 @@ class StreamingCLAM(ImageNetClassifier):
         instance_eval: bool = False,
         return_features: bool = False,
         attention_only: bool = False,
-        unfreeze_at_epoch: int = 25,
         learning_rate: float = 2e-4,
         **kwargs,
     ):
@@ -99,20 +99,25 @@ class StreamingCLAM(ImageNetClassifier):
         self.instance_eval = instance_eval
         self.return_features = return_features
         self.attention_only = attention_only
-        self.unfreeze_at_epoch = unfreeze_at_epoch
         self.learning_rate = learning_rate
 
         if self.max_pool_kernel < 0:
-            raise ValueError(f"max_pool_kernel must be non-negative, found {max_pool_kernel}")
+            raise ValueError(
+                f"max_pool_kernel must be non-negative, found {max_pool_kernel}"
+            )
         if self.stream_maxpool_kernel and self.max_pool_kernel == 0:
-            raise ValueError(f"stream_max_pool_kernel cannot be True when max_pool_kernel=0")
+            raise ValueError(
+                f"stream_max_pool_kernel cannot be True when max_pool_kernel=0"
+            )
 
         assert encoder in list(StreamingCLAM.model_choices.keys())
 
         # Define the streaming network and head
         network = StreamingCLAM.model_choices[encoder](weights="IMAGENET1K_V1")
         stream_net, _ = split_resnet(network)
-        head = CLAMConfig(encoder=encoder, branch=branch, n_classes=n_classes).configure_clam()
+        head = CLAMConfig(
+            encoder=encoder, branch=branch, n_classes=n_classes
+        ).configure_clam()
 
         # At the end of the ResNet model, reduce the spatial dimensions with additional max pool
         self._get_streaming_options(**kwargs)
@@ -171,7 +176,9 @@ class StreamingCLAM(ImageNetClassifier):
 
     def add_maxpool_layers(self, network):
         ds_blocks = torch.nn.Sequential(
-            torch.nn.MaxPool2d((self.max_pool_kernel, self.max_pool_kernel), ceil_mode=True)
+            torch.nn.MaxPool2d(
+                (self.max_pool_kernel, self.max_pool_kernel), ceil_mode=True
+            )
         )
 
         if self.stream_maxpool_kernel:
@@ -231,7 +238,12 @@ class StreamingCLAM(ImageNetClassifier):
         return out
 
     def training_step(self, batch, batch_idx: int, *args, **kwargs):
-        image, mask, label, fname = batch[0]["image"], batch[0]["mask"], batch[1], batch[2]
+        image, mask, label, fname = (
+            batch[0]["image"],
+            batch[0]["mask"],
+            batch[1],
+            batch[2],
+        )
         image = image.to("cpu")
 
         self.image = image
@@ -248,13 +260,26 @@ class StreamingCLAM(ImageNetClassifier):
         )
 
         loss = self.loss_fn(logits, label)
+        #print("Loss in ts", loss)
+
         self.train_acc.update(torch.argmax(logits, dim=1).detach(), label.detach())
         self.train_auc.update(torch.sigmoid(logits)[:, 1].detach(), label.detach())
 
-        self.log("train_acc", self.train_acc, on_epoch=True, prog_bar=True, sync_dist=True)
-        self.log("train_auc", self.train_auc, on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log(
+            "train_acc", self.train_acc, on_epoch=True, prog_bar=True, sync_dist=True
+        )
+        self.log(
+            "train_auc", self.train_auc, on_epoch=True, prog_bar=True, sync_dist=True
+        )
 
-        self.log("train_loss", loss.detach(), prog_bar=True, on_step=True, on_epoch=True, sync_dist=True)
+        self.log(
+            "train_loss",
+            loss.detach(),
+            prog_bar=True,
+            on_step=True,
+            on_epoch=True,
+            sync_dist=True,
+        )
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -268,8 +293,12 @@ class StreamingCLAM(ImageNetClassifier):
         # https://torchmetrics.readthedocs.io/en/stable/pages/lightning.html
         # https: // lightning.ai / docs / pytorch / stable / extensions / logging.html
 
-        self.log("valid_acc", self.val_acc, on_epoch=True, prog_bar=True, sync_dist=True)
-        self.log("valid_auc", self.val_acc, on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log(
+            "valid_acc", self.val_acc, on_epoch=True, prog_bar=True, sync_dist=True
+        )
+        self.log(
+            "valid_auc", self.val_acc, on_epoch=True, prog_bar=True, sync_dist=True
+        )
 
         self.log("val_loss", loss, prog_bar=True, on_epoch=True, sync_dist=True)
 
@@ -299,7 +328,12 @@ class StreamingCLAM(ImageNetClassifier):
         return outputs
 
     def _shared_eval_step(self, batch, batch_idx):
-        image, mask, label, fname = batch[0]["image"], batch[0]["mask"], batch[1], batch[2]
+        image, mask, label, fname = (
+            batch[0]["image"],
+            batch[0]["mask"],
+            batch[1],
+            batch[2],
+        )
         image = image.to("cpu")
 
         y_hat = self.forward(image, mask=mask)[0].detach()
@@ -322,41 +356,39 @@ class StreamingCLAM(ImageNetClassifier):
         }
         self.streaming_options = {**streaming_options, **kwargs}
 
+    def _configure_optimizer_head(self):
+        optimizer = torch.optim.AdamW(
+            self.params, lr=self.learning_rate, weight_decay=2e-4
+        )
+        return optimizer
+
+    def _configure_optimizer_finetune(self):
+        print("optimizer adam with lr 1e-6")
+        optimizer = torch.optim.Adam(
+            self.params, lr=1e-4, weight_decay=1e-5
+        )
+
+        return optimizer
+
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.params, lr=self.learning_rate, weight_decay=1e-5)
+        if self.train_streaming_layers:
+            optimizer = self._configure_optimizer_finetune()
+        else:
+            optimizer = self._configure_optimizer_head()
 
-        def lr_lambda(epoch):
-            if epoch < self.unfreeze_at_epoch:
-                return 1
-            else:
-                # halve the learning rate when switching to training all layers
-                return 0.5
+        return optimizer
 
-        lr_scheduler = {
-            "scheduler": torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda),
-            "name": "lr_scheduler",
-        }
-
-        return [optimizer], [lr_scheduler]
-
-    @property
-    def num_steps(self) -> int:
-        """Get number of steps"""
-        # Accessing _data_source is flaky and might break
-        dataset = self.trainer.fit_loop._data_source.dataloader()
-        dataset_size = len(dataset)
-        num_devices = max(1, self.trainer.num_devices)
-        num_steps = dataset_size * self.trainer.max_epochs // (self.trainer.accumulate_grad_batches * num_devices)
-        return num_steps
 
     def backward(self, loss):
+        #print("Loss in backward", loss)
         loss.backward()
         # del loss
         # Don't call this>? https://pytorch-lightning.readthedocs.io/en/1.5.10/guides/speed.html#things-to-avoid
         torch.cuda.empty_cache()
+        #print(torch.unique(self.str_output.grad))
         if self.train_streaming_layers:
             self.backward_streaming(self.image, self.str_output.grad)
-        del self.str_output, self.image
+        #del self.str_output, self.image
 
 
 if __name__ == "__main__":

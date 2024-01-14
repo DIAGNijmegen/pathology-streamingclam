@@ -52,6 +52,9 @@ class FeatureExtractorFreezeUnfreeze(BaseFinetuning):
             self.previous_backbone_lr = initial_backbone_lr
 
             if self.verbose:
+                print(f"finetune function current lr: {round(current_lr, self.rounding)}" )
+                print(f"finetune function initial_backbone_lr: {round(initial_backbone_lr, self.rounding)}")
+
                 log.info(
                     f"Current lr: {round(current_lr, self.rounding)}, "
                     f"Backbone lr: {round(initial_backbone_lr, self.rounding)}"
@@ -81,6 +84,8 @@ class FeatureExtractorFreezeUnfreeze(BaseFinetuning):
             optimizer.param_groups[-1]["lr"] = next_current_backbone_lr
             self.previous_backbone_lr = next_current_backbone_lr
             if self.verbose:
+                print(f"current_epoch > unfreeze epoch current lr: {round(current_lr, self.rounding)}" )
+                print(f"current_epoch > unfreeze epoch next_current_backbone_lr: {round(next_current_backbone_lr, self.rounding)}")
                 log.info(
                     f"Current lr: {round(current_lr, self.rounding)},"
                     f"Backbone lr: {round(next_current_backbone_lr, self.rounding)}"
@@ -103,7 +108,6 @@ class FeatureExtractorFreezeUnfreeze(BaseFinetuning):
 
             old_stream_network_dtype = pl_module.stream_network.dtype
             old_stream_module_dtype = next(pl_module.stream_network.stream_module.parameters()).dtype
-
 
             tile_cache = pl_module.load_tile_cache_if_needed()
 

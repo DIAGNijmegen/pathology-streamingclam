@@ -15,17 +15,18 @@ class TrainConfig:
     test_csv: str = ""
     mask_suffix: str = "_tissue"  # the suffix for mask tissues e.g. tumor_069_<mask_suffix>.tif
     mode: str = "fit"  # fit, validation, test or predict
-    unfreeze_streaming_layers_at_epoch: int = 20
 
     # Trainer options
-    num_epochs: int = 50  # The number of epochs to train (max)
+    num_epochs_finetune: int = 40  # The number of epochs to train the entire model with
+    num_epochs_head: int = 5  # train just the head for this amount of epochs. Then, finetune with all layers
+
     strategy: str = "ddp_find_unused_parameters_true"
     default_save_dir: str = "/data/pathology/projects/pathology-bigpicture-streamingclam/lightstream-implementation/ckp"
     ckp_path: str = ""  # the name fo the ckp file within the default_save_dir
     resume: bool = True  # Whether to resume training from the last/best epoch
-    grad_batches: int = 2  # Gradient accumulation: the amount of batches before optimizer step
+    grad_batches: int = 1  # Gradient accumulation: the amount of batches before optimizer step
     num_gpus: int = 4
-    precision: str = "16-mixed"
+    precision: str = "32"
 
     # StreamingClam options
     encoder: str = "resnet34"  # Resnet 18, ResNet34, Resnet50
@@ -41,7 +42,8 @@ class TrainConfig:
                                  # the finetuning callback defined in finetuned.py will handle the optimizer for all layers
 
     # Streaming options
-    tile_size: int = 9984
+    tile_size: int = 9984  # tile size when training the head
+    tile_size_finetune: int = 7680  # Tile size when finetuning with the entire network
     statistics_on_cpu: bool = True
     verbose: bool = True
     train_streaming_layers: bool = False
