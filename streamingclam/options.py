@@ -25,7 +25,7 @@ class TrainConfig:
     resume: bool = True  # Whether to resume training from the last/best epoch
     grad_batches: int = 2  # Gradient accumulation: the amount of batches before optimizer step
     num_gpus: int = 4
-    precision: str = "16-mixed"
+    precision: str = "32"
 
     # StreamingClam options
     encoder: str = "resnet34"  # Resnet 18, ResNet34, Resnet50
@@ -42,6 +42,7 @@ class TrainConfig:
 
     # Streaming options
     tile_size: int = 9984
+    tile_size_finetune: int =16384
     statistics_on_cpu: bool = True
     verbose: bool = True
     train_streaming_layers: bool = False

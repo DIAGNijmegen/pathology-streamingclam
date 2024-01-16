@@ -9,7 +9,8 @@ def multiplicative(epoch: int) -> float:
 
 
 class FeatureExtractorFreezeUnfreeze(BaseFinetuning):
-    def __init__(self, unfreeze_at_epoch: int=40,
+    def __init__(self, unfreeze_at_epoch: int=15,
+                 tile_size_finetune: int = 4096,
                  lambda_func: Callable = multiplicative,
                  backbone_initial_lr: float=2e-8,
                  backbone_initial_ratio_lr: float = 1e-2,
@@ -26,6 +27,7 @@ class FeatureExtractorFreezeUnfreeze(BaseFinetuning):
         self.rounding: int = rounding
         self.verbose = verbose
         self.should_align = should_align
+        self.tile_size_finetune= tile_size_finetune
 
     def freeze_before_training(self, pl_module):
         # freeze any module you want
@@ -91,13 +93,13 @@ class FeatureExtractorFreezeUnfreeze(BaseFinetuning):
         # Adjust streaming for the new situation, and unfreeze in the next epoch
         # Also change the dataloader with new tile size and tile stride.
 
-        if trainer.current_epoch == (self._unfreeze_at_epoch - 1):
+        if trainer.current_epoch == (self._unfreeze_at_epoch):
             print("preparing to finetune all layers for next epoch")
             print(
                 "adjusting streaming model and dataloaders to new tile size and tile stride"
             )
             pl_module.to(memory_format=torch.contiguous_format)
-            pl_module.tile_size = 7680
+            pl_module.tile_size = self.tile_size_finetune
             pl_module.tile_cache_fname = None
             pl_module.disable_streaming_hooks()
 
@@ -108,7 +110,7 @@ class FeatureExtractorFreezeUnfreeze(BaseFinetuning):
             tile_cache = pl_module.load_tile_cache_if_needed()
 
             # Reset tile cache
-            pl_module.constructor.tile_size = 7680
+            pl_module.constructor.tile_size = self.tile_size_finetune
             pl_module.constructor.tile_cache = tile_cache
             pl_module.constructor.verbose = False
             pl_module.constructor.model.to(memory_format=torch.contiguous_format)
@@ -123,7 +125,7 @@ class FeatureExtractorFreezeUnfreeze(BaseFinetuning):
             pl_module.on_train_start()
             # Reset dataloaders
             tile_stride = pl_module.configure_tile_stride()
-            trainer.datamodule.tile_size = 7680
+            trainer.datamodule.tile_size = self.tile_size_finetune
             trainer.datamodule.tile_stride = tile_stride
             trainer.datamodule.verbose = False
             trainer.datamodule.setup("fit")

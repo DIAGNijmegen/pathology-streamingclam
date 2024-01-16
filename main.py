@@ -55,7 +55,9 @@ def configure_callbacks(options):
         mode="min",
         verbose=True,
     )
-    finetune_cb = FeatureExtractorFreezeUnfreeze(options.unfreeze_streaming_layers_at_epoch, lambda_func=lambda epoch: 10)
+    finetune_cb = FeatureExtractorFreezeUnfreeze(options.unfreeze_streaming_layers_at_epoch,
+                                                 tile_size_finetune=options.tile_size_finetune,
+                                                 lambda_func=lambda epoch: 5)
     return checkpoint_callback, finetune_cb
 
 
@@ -180,7 +182,7 @@ if __name__ == "__main__":
     tile_stride, network_output_stride = get_model_statistics(model, options)
 
     options.tile_stride = tile_stride
-    options.network_output_stride = network_output_stride * options.max_pool_kernel
+    options.network_output_stride = max(network_output_stride * options.max_pool_kernel, network_output_stride)
 
     dm = StreamingCLAMDataModule(
         image_dir=options.image_path,

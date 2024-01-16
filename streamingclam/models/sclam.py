@@ -323,7 +323,7 @@ class StreamingCLAM(ImageNetClassifier):
         self.streaming_options = {**streaming_options, **kwargs}
 
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.params, lr=self.learning_rate, weight_decay=1e-5)
+        optimizer = torch.optim.Adam(self.params, lr=self.learning_rate, weight_decay=1e-5)
 
         def lr_lambda(epoch):
             if epoch < self.unfreeze_at_epoch:
