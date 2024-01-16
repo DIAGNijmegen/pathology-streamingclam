@@ -149,7 +149,7 @@ class StreamingCLAMDataModule(L.LightningDataModule):
 
         batch[2] = batch[2][0]
         # Always put mask to gpu
-        if batch[0]["mask"] is not None:
+        if "mask" in batch[0].keys():
             batch[0]["mask"] = batch[0]["mask"].to(device)
 
         if not self.copy_to_gpu:

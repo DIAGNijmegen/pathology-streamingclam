@@ -231,8 +231,11 @@ class StreamingCLAM(ImageNetClassifier):
         return out
 
     def training_step(self, batch, batch_idx: int, *args, **kwargs):
-        image, mask, label, fname = batch[0]["image"], batch[0]["mask"], batch[1], batch[2]
+        image = batch[0]["image"]
         image = image.to("cpu")
+        mask = batch[0]["mask"] if "mask" in batch[0].keys() else None
+        label = batch[1]
+        fname = batch[2]
 
         self.image = image
         self.str_output = self.forward_streaming(image)
@@ -299,8 +302,11 @@ class StreamingCLAM(ImageNetClassifier):
         return outputs
 
     def _shared_eval_step(self, batch, batch_idx):
-        image, mask, label, fname = batch[0]["image"], batch[0]["mask"], batch[1], batch[2]
+        image = batch[0]["image"]
         image = image.to("cpu")
+        mask = batch[0]["mask"] if "mask" in batch[0].keys() else None
+        label = batch[1]
+        fname = batch[2]
 
         y_hat = self.forward(image, mask=mask)[0].detach()
         loss = self.loss_fn(y_hat, label)

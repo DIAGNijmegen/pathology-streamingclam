@@ -97,7 +97,7 @@ class StreamingClassificationDataset(Dataset):
         return [img_path], label
 
     def get_img_pairs(self, idx):
-        images = {"image": None, "mask": None}
+        images = {"image": None}
 
         img_fname = str(self.data_paths["images"][idx])
         label = int(self.data_paths["labels"][idx])
@@ -128,7 +128,7 @@ class StreamingClassificationDataset(Dataset):
             sample = self.random_crop(**sample)
 
         # Masks don't need to be really large for tissues, so scale them back
-        if sample["mask"] is not None:
+        if "mask" in sample.keys():
             # Resize to streamingclam output stride, with max pool kernel
             # Rescale between model max pool and pyvips might not exactly align, so calculate new scale values
             new_height = math.ceil(sample["mask"].height / self.network_output_stride)
@@ -143,8 +143,9 @@ class StreamingClassificationDataset(Dataset):
         sample = to_tensor(**sample)
 
         # To ToTensor does not support cast to bool arrays yet, so do here
-        if sample["mask"] is not None:
+        if "mask" in sample.keys():
             sample["mask"] = sample["mask"] >= 1
+
 
         return sample, torch.tensor(label), Path(img_fname).stem
 
@@ -161,7 +162,10 @@ class StreamingClassificationDataset(Dataset):
             return A.Compose(
                 [
                     A.PadIfNeeded(
-                        min_width=self.tile_size, min_height=self.tile_size, value=[255, 255, 255], mask_value=[0, 0, 0]
+                        min_width=self.tile_size,
+                        min_height=self.tile_size,
+                        value=[255, 255, 255],
+                        mask_value=[0, 0, 0],
                     )
                 ]
             )
