@@ -272,7 +272,7 @@ class StreamingCLAM(ImageNetClassifier):
         # https: // lightning.ai / docs / pytorch / stable / extensions / logging.html
 
         self.log("valid_acc", self.val_acc, on_epoch=True, prog_bar=True, sync_dist=True)
-        self.log("valid_auc", self.val_acc, on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log("valid_auc", self.val_auc, on_epoch=True, prog_bar=True, sync_dist=True)
 
         self.log("val_loss", loss, prog_bar=True, on_epoch=True, sync_dist=True)
 
