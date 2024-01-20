@@ -251,8 +251,9 @@ class StreamingCLAM(ImageNetClassifier):
         )
 
         loss = self.loss_fn(logits, label)
+        probs = torch.nn.functional.softmax(logits)
         self.train_acc.update(torch.argmax(logits, dim=1).detach(), label.detach())
-        self.train_auc.update(torch.sigmoid(logits)[:, 1].detach(), label.detach())
+        self.train_auc.update(probs[:, 1].detach(), label.detach())
 
         self.log("train_acc", self.train_acc, on_epoch=True, prog_bar=True, sync_dist=True)
         self.log("train_auc", self.train_auc, on_epoch=True, prog_bar=True, sync_dist=True)
@@ -264,8 +265,10 @@ class StreamingCLAM(ImageNetClassifier):
         loss, y_hat, label, fname = self._shared_eval_step(batch, batch_idx)
         del batch
 
+        probs = torch.nn.functional.softmax(y_hat) 
+
         self.val_acc.update(torch.argmax(y_hat, dim=1).detach(), label)
-        self.val_auc.update(torch.sigmoid(y_hat)[:, 1], label)
+        self.val_auc.update(probs[:, 1], label)
 
         # Should update and clear automatically, as per
         # https://torchmetrics.readthedocs.io/en/stable/pages/lightning.html
@@ -278,7 +281,8 @@ class StreamingCLAM(ImageNetClassifier):
 
     def test_step(self, batch, batch_idx):
         loss, y_hat, label, fname = self._shared_eval_step(batch, batch_idx)
-        probs = torch.sigmoid(y_hat)
+
+        probs = torch.nn.functional.softmax(y_hat)
 
         self.test_acc(torch.argmax(y_hat, dim=1), label)
         self.test_auc(probs[:, 1], label)
