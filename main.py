@@ -179,7 +179,7 @@ if __name__ == "__main__":
 
     if options.mode == "fit":
         wandb_logger = WandbLogger(
-            name=f"additive_sclam_direct_fold_{str(options.fold)}",
+            name=f"additive_sclam_direct_aug_fold_{str(options.fold)}",
             project="lightstreamingclam-test-debug",
             save_dir="/home/stephandooper",
         )
