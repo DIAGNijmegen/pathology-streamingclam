@@ -189,7 +189,11 @@ if __name__ == "__main__":
         tile_stride, network_output_stride = get_model_statistics(model)
 
         options.tile_stride = tile_stride
-        options.network_output_stride = max(network_output_stride * options.pooling_kernel, network_output_stride)
+
+        if options.stream_pooling_kernel:
+            options.network_output_stride = network_output_stride
+        else:
+            options.network_output_stride = max(network_output_stride * options.pooling_kernel, network_output_stride)
 
         dm = configure_datamodule(options)
 

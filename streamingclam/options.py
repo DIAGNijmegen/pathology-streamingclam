@@ -16,12 +16,12 @@ class TrainConfig:
     test_csv: str = "/data/pathology/projects/pathology-bigpicture-streamingclam/streaming_experiments/camelyon/data_splits/test.csv"
     mask_suffix: str = "_tissue"  # the suffix for mask tissues e.g. tumor_069_<mask_suffix>.tif
     mode: str = "fit"  # fit, validation, test or predict
-    unfreeze_streaming_layers_at_epoch: int = 3
+    unfreeze_streaming_layers_at_epoch: int = 10
 
     # Trainer options
     num_epochs: int = 35  # The number of epochs to train (max)
     strategy: str = "ddp_find_unused_parameters_true"
-    default_save_dir: str = "/data/pathology/projects/pathology-bigpicture-uncertainty/sclam-uncertainty/ckp"
+    default_save_dir: str = "/data/pathology/projects/pathology-bigpicture-uncertainty/ckp"
     ckp_path: str = ""  # the name fo the ckp file within the default_save_dir
     resume: bool = True  # Whether to resume training from the last/best epoch
     grad_batches: int = 2  # Gradient accumulation: the amount of batches before optimizer step
