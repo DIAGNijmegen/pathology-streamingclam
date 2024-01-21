@@ -355,7 +355,7 @@ class StreamingCLAM(ImageNetClassifier):
                 return 1
             else:
                 # halve the learning rate when switching to training all layers
-                return 0.5
+                return 0.1
 
         lr_scheduler = {
             "scheduler": torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda),
