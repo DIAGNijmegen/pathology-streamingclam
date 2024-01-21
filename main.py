@@ -30,7 +30,7 @@ torch.set_float32_matmul_precision("medium")
 
 def configure_callbacks(options):
     checkpoint_callback = ModelCheckpoint(
-        dirpath=options.default_save_dir + "/checkpoints/sclam_debug",
+        dirpath=options.default_save_dir + f"/checkpoints/sclam/fold_{str(options.fold)}",
         monitor="val_loss",
         filename="streamingclam-{epoch:02d}-{val_loss:.2f}-{val_acc:.2f}",
         save_top_k=3,
@@ -53,7 +53,7 @@ def configure_callbacks(options):
 def configure_checkpoints():
     try:
         # Check for last checkpoint
-        last_checkpoint = list(Path(options.default_save_dir + "/checkpoints/sclam_debug").glob("*last.ckpt"))
+        last_checkpoint = list(Path(options.default_save_dir + f"/checkpoints/sclam/fold_{str(options.fold)}").glob("*last.ckpt"))
         last_checkpoint_path = str(last_checkpoint[0])
     except IndexError:
         if options.resume:
@@ -178,7 +178,11 @@ if __name__ == "__main__":
     options = get_options()
 
     if options.mode == "fit":
-        wandb_logger = WandbLogger(project="lightstreamingclam-test-debug", save_dir="/home/stephandooper")
+        wandb_logger = WandbLogger(
+            name=f"additive_sclam_direct_fold_{str(options.fold)}",
+            project="lightstreamingclam-test-debug",
+            save_dir="/home/stephandooper",
+        )
         streaming_options = get_streaming_options(options)
 
         model = configure_streamingclam(options, streaming_options)
@@ -191,7 +195,6 @@ if __name__ == "__main__":
 
         dm.setup(stage=options.mode)
         trainer = configure_trainer(options)
-
 
         # log gradients, parameter histogram and model topology
         if trainer.global_rank == 0:
