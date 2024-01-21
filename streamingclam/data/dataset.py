@@ -158,6 +158,9 @@ class StreamingClassificationDataset(Dataset):
             return A.Compose([A.CropOrPad(self.img_size, self.img_size, p=1.0)])
 
         # Pad images that are smaller than the tile size to the tile size
+        # Also, if one dimensions is larger than the tile size, make sure it is a multiple of at least the network output
+        # stride
+        # todo: Figure out if second padding must be tile_stride
         if pad_to_tile_size:
             return A.Compose(
                 [
@@ -166,7 +169,15 @@ class StreamingClassificationDataset(Dataset):
                         min_height=self.tile_size,
                         value=[255, 255, 255],
                         mask_value=[0, 0, 0],
-                    )
+                    ),
+                    A.PadIfNeeded(
+                        min_height=None,
+                        min_width=None,
+                        pad_width_divisor=self.network_output_stride,
+                        pad_height_divisor=self.network_output_stride,
+                        value=[255, 255, 255],
+                        mask_value=[0, 0, 0],
+                    ),
                 ]
             )
 
