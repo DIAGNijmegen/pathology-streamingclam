@@ -8,14 +8,14 @@ from pathlib import Path
 from torch.utils.data import Dataset
 import albumentationsxl as A
 
+#A.OneOrOther(A.OneOf([A.Blur(), A.GaussianBlur(sigma_limit=7)]), A.Sharpen()),
 
 augmentations = A.Compose(
     [
         A.Flip(),
-        A.RandomGamma(gamma_limit=(75, 125)),
-        A.RandomBrightnessContrast(brightness_limit=0.1, contrast_limit=0.2),
+        A.RandomGamma(gamma_limit=(90, 110)),
+        A.RandomBrightnessContrast(brightness_limit=0.1, contrast_limit=0.1),
         A.HueSaturationValue(p=0.5),
-        A.OneOrOther(A.OneOf([A.Blur(), A.GaussianBlur(sigma_limit=7)]), A.Sharpen()),
         A.Rotate(),
     ],
 )
