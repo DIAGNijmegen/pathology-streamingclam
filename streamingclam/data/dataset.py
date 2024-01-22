@@ -166,7 +166,15 @@ class StreamingClassificationDataset(Dataset):
                         min_height=self.tile_size,
                         value=[255, 255, 255],
                         mask_value=[0, 0, 0],
-                    )
+                    ),
+                    A.PadIfNeeded(
+                        min_height=None,
+                        min_width=None,
+                        pad_width_divisor=self.network_output_stride,
+                        pad_height_divisor=self.network_output_stride,
+                        value=[255, 255, 255],
+                        mask_value=[0, 0, 0],
+                    ),
                 ]
             )
 
