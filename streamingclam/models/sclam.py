@@ -3,13 +3,11 @@ import torch
 from lightstream.modules.imagenet_template import ImageNetClassifier
 
 from lightstream.models.resnet.resnet import split_resnet
-from streamingclam.models.clam import CLAM_MB, CLAM_SB
+from streamingclam.models.additive_clam import CLAM_MB, CLAM_SB
+from streamingclam.models.resnet import resnet39, resnet50
 
-from torchvision.models import resnet18, resnet34, resnet50
-from torchmetrics import MetricCollection
+from torchvision.models import resnet18, resnet34
 from torchmetrics.classification import Accuracy, AUROC
-
-from torch.optim.lr_scheduler import LambdaLR
 
 
 # Streamingclam works with resnets, can be extended to other encoders if needed
@@ -24,12 +22,14 @@ class CLAMConfig:
         k_sample: int = 8,
         instance_loss_fn: torch.nn = torch.nn.CrossEntropyLoss,
         subtyping=False,
+        additive = False
     ):
         self.branch = branch
         self.encoder = encoder
         self.n_classes = n_classes
         self.size = self.configure_size()
 
+        self.additive = additive
         self.gate = gate
         self.use_dropout = use_dropout
         self.k_sample = k_sample
@@ -40,6 +40,8 @@ class CLAMConfig:
     def configure_size(self):
         if self.encoder == "resnet50":
             return [2048, 512, 256]
+        elif self.encoder == "resnet39":
+            return [1024, 512, 256]
         elif self.encoder in ("resnet18", "resnet34"):
             return [512, 512, 256]
 
@@ -55,6 +57,7 @@ class CLAMConfig:
                 n_classes=self.n_classes,
                 instance_loss_fn=self.instance_loss_fn(),
                 subtyping=self.subtyping,
+                additive=self.additive
             )
         elif self.branch == "mb":
             print("Loading CLAM with multiple branches \n")
@@ -75,7 +78,7 @@ class CLAMConfig:
 
 
 class StreamingCLAM(ImageNetClassifier):
-    model_choices = {"resnet18": resnet18, "resnet34": resnet34, "resnet50": resnet50}
+    model_choices = {"resnet18": resnet18, "resnet34": resnet34, "resnet39": resnet39, "resnet50": resnet50}
 
     def __init__(
         self,
@@ -84,43 +87,51 @@ class StreamingCLAM(ImageNetClassifier):
         loss_fn: torch.nn.functional,
         branch: str,
         n_classes: int,
-        max_pool_kernel: int = 0,
-        stream_max_pool_kernel: bool = False,
+        pooling_layer: str = "maxpool",
+        pooling_kernel: int = 0,
+        stream_pooling_kernel: bool = False,
         train_streaming_layers: bool = False,
         instance_eval: bool = False,
         return_features: bool = False,
         attention_only: bool = False,
         unfreeze_at_epoch: int = 25,
         learning_rate: float = 2e-4,
+        additive: bool = False,
         **kwargs,
     ):
-        self.stream_maxpool_kernel = stream_max_pool_kernel
-        self.max_pool_kernel = max_pool_kernel
+        self.stream_pooling_kernel = stream_pooling_kernel
+        self.pooling_layer = pooling_layer
+        self.pooling_kernel = pooling_kernel
         self.instance_eval = instance_eval
         self.return_features = return_features
         self.attention_only = attention_only
         self.unfreeze_at_epoch = unfreeze_at_epoch
         self.learning_rate = learning_rate
+        self.additive = additive
 
-        if self.max_pool_kernel < 0:
-            raise ValueError(f"max_pool_kernel must be non-negative, found {max_pool_kernel}")
-        if self.stream_maxpool_kernel and self.max_pool_kernel == 0:
-            raise ValueError(f"stream_max_pool_kernel cannot be True when max_pool_kernel=0")
+        if self.pooling_kernel < 0:
+            raise ValueError(f"pooling_kernel must be non-negative, found {pooling_kernel}")
+        if self.stream_pooling_kernel and self.pooling_kernel == 0:
+            raise ValueError(f"stream_pooling_kernel cannot be True when pooling_kernel=0")
 
         assert encoder in list(StreamingCLAM.model_choices.keys())
 
         # Define the streaming network and head
-        network = StreamingCLAM.model_choices[encoder](weights="IMAGENET1K_V1")
-        stream_net, _ = split_resnet(network)
-        head = CLAMConfig(encoder=encoder, branch=branch, n_classes=n_classes).configure_clam()
+        if encoder in ("resnet18", "resnet34"):
+            network = StreamingCLAM.model_choices[encoder](weights="IMAGENET1K_V1")
+            stream_net, _ = split_resnet(network)
+        else:
+            stream_net = StreamingCLAM.model_choices[encoder](pretrained=True, progress=False, key="BT")
+
+        head = CLAMConfig(encoder=encoder, branch=branch, n_classes=n_classes, additive=additive).configure_clam()
 
         # At the end of the ResNet model, reduce the spatial dimensions with additional max pool
         self._get_streaming_options(**kwargs)
 
         self.ds_blocks = None
-        if self.max_pool_kernel > 0:
-            if self.stream_maxpool_kernel:
-                stream_net = self.add_maxpool_layers(stream_net)
+        if self.pooling_kernel > 0:
+            if self.stream_pooling_kernel:
+                stream_net = self.add_pooling_layers(stream_net)
                 super().__init__(
                     stream_net,
                     head,
@@ -130,7 +141,7 @@ class StreamingCLAM(ImageNetClassifier):
                     **self.streaming_options,
                 )
             else:
-                ds_blocks, head = self.add_maxpool_layers(head)
+                ds_blocks, head = self.add_pooling_layers(head)
                 super().__init__(
                     stream_net,
                     head,
@@ -150,14 +161,6 @@ class StreamingCLAM(ImageNetClassifier):
                 **self.streaming_options,
             )
 
-        # Define metrics
-        metrics = MetricCollection(
-            [
-                Accuracy(task="binary", num_classes=n_classes),
-                AUROC(task="binary", num_classes=n_classes),
-            ]
-        )
-
         self.train_acc = Accuracy(task="binary", num_classes=n_classes)
         self.train_auc = AUROC(task="binary", num_classes=n_classes)
 
@@ -169,12 +172,24 @@ class StreamingCLAM(ImageNetClassifier):
 
         self.test_outputs = []
 
-    def add_maxpool_layers(self, network):
+    def _configure_pooling_layer(self):
+        if self.pooling_layer == "maxpool":
+            pooling_layer = torch.nn.MaxPool2d
+        elif self.pooling_layer == "avgpool":
+            pooling_layer = torch.nn.AvgPool2d
+        else:
+            raise TypeError(f"pooling_layer must be one of \"maxpool\" or \"avgpool\" but found {self.pooling_layer}")
+
+        return pooling_layer
+
+
+    def add_pooling_layers(self, network):
+        pooling_layer = self._configure_pooling_layer()
         ds_blocks = torch.nn.Sequential(
-            torch.nn.MaxPool2d((self.max_pool_kernel, self.max_pool_kernel), ceil_mode=True)
+            pooling_layer((self.pooling_kernel, self.pooling_kernel), ceil_mode=True)
         )
 
-        if self.stream_maxpool_kernel:
+        if self.stream_pooling_kernel:
             return torch.nn.Sequential(network, ds_blocks)
         else:
             return ds_blocks, network
@@ -251,7 +266,7 @@ class StreamingCLAM(ImageNetClassifier):
         )
 
         loss = self.loss_fn(logits, label)
-        probs = torch.nn.functional.softmax(logits)
+        probs = torch.nn.functional.softmax(logits, dim=1)
         self.train_acc.update(torch.argmax(logits, dim=1).detach(), label.detach())
         self.train_auc.update(probs[:, 1].detach(), label.detach())
 
@@ -262,12 +277,12 @@ class StreamingCLAM(ImageNetClassifier):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        loss, y_hat, label, fname = self._shared_eval_step(batch, batch_idx)
+        loss, logits, label, fname = self._shared_eval_step(batch, batch_idx)
         del batch
 
-        probs = torch.nn.functional.softmax(y_hat) 
+        probs = torch.nn.functional.softmax(logits, dim=1)
 
-        self.val_acc.update(torch.argmax(y_hat, dim=1).detach(), label)
+        self.val_acc.update(torch.argmax(logits, dim=1).detach(), label)
         self.val_auc.update(probs[:, 1], label)
 
         # Should update and clear automatically, as per
@@ -312,9 +327,9 @@ class StreamingCLAM(ImageNetClassifier):
         label = batch[1]
         fname = batch[2]
 
-        y_hat = self.forward(image, mask=mask)[0].detach()
-        loss = self.loss_fn(y_hat, label)
-        return loss, y_hat, label.detach(), fname
+        logits = self.forward(image, mask=mask)[0].detach()
+        loss = self.loss_fn(logits, label)
+        return loss, logits, label.detach(), fname
 
     def _get_streaming_options(self, **kwargs):
         """Set streaming defaults, but overwrite them with values of kwargs if present."""
@@ -340,7 +355,7 @@ class StreamingCLAM(ImageNetClassifier):
                 return 1
             else:
                 # halve the learning rate when switching to training all layers
-                return 0.5
+                return 0.1
 
         lr_scheduler = {
             "scheduler": torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda),
@@ -376,5 +391,5 @@ if __name__ == "__main__":
         loss_fn=torch.nn.functional.cross_entropy,
         branch="sb",
         n_classes=4,
-        max_pool_kernel=8,
+        pooling_kernel=8,
     )

@@ -10,17 +10,18 @@ import argparse
 class TrainConfig:
     image_path: str = ""
     mask_path: str = ""
-    train_csv: str = ""
-    val_csv: str = ""
-    test_csv: str = ""
+    fold: int = 0
+    train_csv: str = f"/data/pathology/projects/pathology-bigpicture-streamingclam/streaming_experiments/camelyon/data_splits/train_{str(fold)}.csv"
+    val_csv: str = f"/data/pathology/projects/pathology-bigpicture-streamingclam/streaming_experiments/camelyon/data_splits/val_{str(fold)}.csv"
+    test_csv: str = "/data/pathology/projects/pathology-bigpicture-streamingclam/streaming_experiments/camelyon/data_splits/test.csv"
     mask_suffix: str = "_tissue"  # the suffix for mask tissues e.g. tumor_069_<mask_suffix>.tif
     mode: str = "fit"  # fit, validation, test or predict
-    unfreeze_streaming_layers_at_epoch: int = 20
+    unfreeze_streaming_layers_at_epoch: int = 25
 
     # Trainer options
-    num_epochs: int = 50  # The number of epochs to train (max)
+    num_epochs: int = 35  # The number of epochs to train (max)
     strategy: str = "ddp_find_unused_parameters_true"
-    default_save_dir: str = "/data/pathology/projects/pathology-bigpicture-streamingclam/lightstream-implementation/ckp"
+    default_save_dir: str = "/data/pathology/projects/pathology-bigpicture-uncertainty/ckp"
     ckp_path: str = ""  # the name fo the ckp file within the default_save_dir
     resume: bool = True  # Whether to resume training from the last/best epoch
     grad_batches: int = 2  # Gradient accumulation: the amount of batches before optimizer step
@@ -28,21 +29,23 @@ class TrainConfig:
     precision: str = "32"
 
     # StreamingClam options
-    encoder: str = "resnet34"  # Resnet 18, ResNet34, Resnet50
+    encoder: str = "resnet39"  # Resnet 18, ResNet34, Resnet50, Resnet39
     branch: str = "sb"  # sb or mb
-    max_pool_kernel: int = 8
+    pooling_layer: str = "avgpool"  # one of maxpool, avgpool
+    pooling_kernel: int = 8  # Kernel size & stride for the maxpool/avgpool
     num_classes: int = 2
     loss_fn: torch.nn.Module = torch.nn.CrossEntropyLoss()
     instance_eval: bool = False
     return_features: bool = False
     attention_only: bool = False
-    stream_max_pool_kernel: bool = False
+    stream_pooling_kernel: bool = True
     learning_rate: float = 2e-4  # the learning rate when training the CLAM head,
                                  # the finetuning callback defined in finetuned.py will handle the optimizer for all layers
+    additive: bool = True
 
     # Streaming options
-    tile_size: int = 9984
-    tile_size_finetune: int =16384
+    tile_size: int = 9600
+    tile_size_finetune: int =6400
     statistics_on_cpu: bool = True
     verbose: bool = True
     train_streaming_layers: bool = False

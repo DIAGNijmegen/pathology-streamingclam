@@ -2,21 +2,26 @@ import torch
 from lightning.pytorch.callbacks import BaseFinetuning
 from typing import Callable
 import logging
+
 log = logging.getLogger(__name__)
+
 
 def multiplicative(epoch: int) -> float:
     return 2.0
 
 
 class FeatureExtractorFreezeUnfreeze(BaseFinetuning):
-    def __init__(self, unfreeze_at_epoch: int=15,
-                 tile_size_finetune: int = 4096,
-                 lambda_func: Callable = multiplicative,
-                 backbone_initial_lr: float=2e-8,
-                 backbone_initial_ratio_lr: float = 1e-2,
-                 rounding: int = 12,
-                 should_align: bool = True,
-                 verbose: bool = True):
+    def __init__(
+        self,
+        unfreeze_at_epoch: int = 15,
+        tile_size_finetune: int = 4096,
+        lambda_func: Callable = multiplicative,
+        backbone_initial_lr: float = 2e-8,
+        backbone_initial_ratio_lr: float = 1e-2,
+        rounding: int = 12,
+        should_align: bool = True,
+        verbose: bool = True,
+    ):
         super().__init__()
         print("unfreezing streaming network at epoch", unfreeze_at_epoch)
         self._unfreeze_at_epoch = unfreeze_at_epoch
@@ -27,7 +32,7 @@ class FeatureExtractorFreezeUnfreeze(BaseFinetuning):
         self.rounding: int = rounding
         self.verbose = verbose
         self.should_align = should_align
-        self.tile_size_finetune= tile_size_finetune
+        self.tile_size_finetune = tile_size_finetune
 
     def freeze_before_training(self, pl_module):
         # freeze any module you want
@@ -42,7 +47,6 @@ class FeatureExtractorFreezeUnfreeze(BaseFinetuning):
     def finetune_function(self, pl_module, current_epoch, optimizer):
         # When `current_epoch` is self._unfreeze_at_epoch, feature_extractor will start training.
         # Check this for every epoch in case we are resuming after failure
-
 
         if current_epoch == self._unfreeze_at_epoch:
             current_lr = optimizer.param_groups[0]["lr"]
@@ -66,7 +70,7 @@ class FeatureExtractorFreezeUnfreeze(BaseFinetuning):
                     modules=pl_module.stream_network.stream_module,
                     optimizer=optimizer,
                     train_bn=False,
-                    lr=initial_backbone_lr
+                    lr=initial_backbone_lr,
                 )
 
                 print("Switching to training all layers in the network")
@@ -88,16 +92,13 @@ class FeatureExtractorFreezeUnfreeze(BaseFinetuning):
                     f"Backbone lr: {round(next_current_backbone_lr, self.rounding)}"
                 )
 
-
     def on_train_epoch_end(self, trainer, pl_module):
         # Adjust streaming for the new situation, and unfreeze in the next epoch
         # Also change the dataloader with new tile size and tile stride.
 
-        if trainer.current_epoch == (self._unfreeze_at_epoch):
+        if trainer.current_epoch == (self._unfreeze_at_epoch - 1):
             print("preparing to finetune all layers for next epoch")
-            print(
-                "adjusting streaming model and dataloaders to new tile size and tile stride"
-            )
+            print("adjusting streaming model and dataloaders to new tile size and tile stride")
             pl_module.to(memory_format=torch.contiguous_format)
             pl_module.tile_size = self.tile_size_finetune
             pl_module.tile_cache_fname = None
@@ -105,7 +106,6 @@ class FeatureExtractorFreezeUnfreeze(BaseFinetuning):
 
             old_stream_network_dtype = pl_module.stream_network.dtype
             old_stream_module_dtype = next(pl_module.stream_network.stream_module.parameters()).dtype
-
 
             tile_cache = pl_module.load_tile_cache_if_needed()
 

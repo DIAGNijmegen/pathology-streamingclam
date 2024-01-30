@@ -8,14 +8,14 @@ from pathlib import Path
 from torch.utils.data import Dataset
 import albumentationsxl as A
 
+#A.OneOrOther(A.OneOf([A.Blur(), A.GaussianBlur(sigma_limit=7)]), A.Sharpen()),
+#A.RandomBrightnessContrast(brightness_limit=0.1, contrast_limit=0.1),
+#A.RandomGamma(gamma_limit=(90, 110)),
 
 augmentations = A.Compose(
     [
         A.Flip(),
-        A.RandomGamma(gamma_limit=(75, 125)),
-        A.RandomBrightnessContrast(brightness_limit=0.1, contrast_limit=0.2),
         A.HueSaturationValue(p=0.5),
-        A.OneOrOther(A.OneOf([A.Blur(), A.GaussianBlur(sigma_limit=7)]), A.Sharpen()),
         A.Rotate(),
     ],
 )
@@ -158,6 +158,9 @@ class StreamingClassificationDataset(Dataset):
             return A.Compose([A.CropOrPad(self.img_size, self.img_size, p=1.0)])
 
         # Pad images that are smaller than the tile size to the tile size
+        # Also, if one dimensions is larger than the tile size, make sure it is a multiple of at least the network output
+        # stride
+        # todo: Figure out if second padding must be tile_stride
         if pad_to_tile_size:
             return A.Compose(
                 [
