@@ -8,9 +8,9 @@ from pathlib import Path
 from torch.utils.data import Dataset
 import albumentationsxl as A
 
-#A.OneOrOther(A.OneOf([A.Blur(), A.GaussianBlur(sigma_limit=7)]), A.Sharpen()),
-#A.RandomBrightnessContrast(brightness_limit=0.1, contrast_limit=0.1),
-#A.RandomGamma(gamma_limit=(90, 110)),
+# A.OneOrOther(A.OneOf([A.Blur(), A.GaussianBlur(sigma_limit=7)]), A.Sharpen()),
+# A.RandomBrightnessContrast(brightness_limit=0.1, contrast_limit=0.1),
+# A.RandomGamma(gamma_limit=(90, 110)),
 
 augmentations = A.Compose(
     [
@@ -25,7 +25,7 @@ class StreamingClassificationDataset(Dataset):
     def __init__(
         self,
         img_dir: Path | str,
-        csv_file: str,
+        csv_file: str | pd.DataFrame,
         tile_size: int,
         img_size: int,
         read_level: int,
@@ -51,7 +51,10 @@ class StreamingClassificationDataset(Dataset):
         self.variable_input_shapes = variable_input_shapes
         self.transform = transform
 
-        self.classification_frame = pd.read_csv(csv_file)
+        if not isinstance(csv_file, pd.DataFrame):
+            self.classification_frame = pd.read_csv(csv_file)
+        else:
+            self.classification_frame = csv_file
 
         # Will be populated in check_csv function
         self.data_paths = {"images": [], "masks": [], "labels": []}
@@ -146,8 +149,9 @@ class StreamingClassificationDataset(Dataset):
         if "mask" in sample.keys():
             sample["mask"] = sample["mask"] >= 1
 
-
-        return sample, torch.tensor(label), Path(img_fname).stem
+        sample["label"] = torch.tensor(label)
+        sample["image_name"] = Path(img_fname).stem
+        return sample
 
     def __len__(self):
         return len(self.classification_frame)
@@ -194,6 +198,7 @@ class StreamingClassificationDataset(Dataset):
                 ),
             ]
         )
+
 
 
 if __name__ == "__main__":
