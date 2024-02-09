@@ -1,9 +1,7 @@
 import torch
 from lightstream.modules.imagenet_template import ImageNetClassifier
-
 from lightstream.models.resnet.resnet import split_resnet
-from streamingclam.models.additive_clam import CLAM_MB, CLAM_SB
-
+from streamingclam.models.clam import CLAM_MB, CLAM_SB
 from torchvision.models import resnet18, resnet34, resnet50
 from torchmetrics.classification import Accuracy, AUROC
 
