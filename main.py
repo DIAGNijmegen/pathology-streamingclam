@@ -17,13 +17,13 @@ import lightning.pytorch as pl
 from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
 
-from streamingclam.options import TrainConfig
+from streamingclam.lightning.options import TrainConfig
 from streamingclam.utils.memory_format import MemoryFormat
 from streamingclam.utils.printing import PrintingCallback
 from streamingclam.utils.finetune import FeatureExtractorFreezeUnfreeze
 from streamingclam.data.splits import StreamingCLAMDataModule
 from streamingclam.data.dataset import augmentations
-from streamingclam.models.sclam import StreamingCLAM
+from streamingclam.lightning.sclam import StreamingCLAM
 from streamingclam.utils.writers import AttentionWriter, TestPredictionWriter
 
 torch.set_float32_matmul_precision("medium")

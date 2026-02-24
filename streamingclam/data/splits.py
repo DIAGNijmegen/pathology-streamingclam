@@ -62,7 +62,6 @@ class StreamingCLAMDataModule(L.LightningDataModule):
         attention_files_written = self.output_dir.rglob("*.tif")
 
 
-
     def setup(self, stage: str):
         # Assign train/val datasets for use in dataloaders
         # assign a dataset

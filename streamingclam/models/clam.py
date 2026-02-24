@@ -160,7 +160,38 @@ class CLAM_SB(nn.Module):
         instance_loss = self.instance_loss_fn(logits, p_targets)
         return instance_loss, p_preds, p_targets, logits
 
+    def instance_eval_sb(self, A, h, label):
+        total_inst_loss = 0.0
+        all_preds = []
+        all_targets = []
+        all_logits = []
+        inst_labels = F.one_hot(label, num_classes=self.n_classes).squeeze()  # binarize label
+        for i in range(len(self.instance_classifiers)):
+            inst_label = inst_labels[i].item()
+            classifier = self.instance_classifiers[i]
+            if inst_label == 1:  # in-the-class:
+                instance_loss, preds, targets, inst_logits = self.inst_eval(A, h, classifier)
+                all_preds.extend(preds.cpu().numpy())
+                all_targets.extend(targets.cpu().numpy())
+                all_logits.extend(inst_logits.detach().cpu().numpy())
+            else:  # out-of-the-class
+                if self.subtyping:
+                    instance_loss, preds, targets, inst_logits = self.inst_eval_out(A, h, classifier)
+                    all_preds.extend(preds.cpu().numpy())
+                    all_targets.extend(targets.cpu().numpy())
+                    all_logits.extend(inst_logits.detach().cpu().numpy())
+                else:
+                    continue
+            total_inst_loss += instance_loss
+
+        if self.subtyping:
+            total_inst_loss /= len(self.instance_classifiers)
+
+        return total_inst_loss, all_targets, all_logits, all_preds
+
     def forward(self, h, label=None, instance_eval=False, return_features=False, attention_only=False):
+
+        results_dict = {}
         device = h.device
         A, h = self.attention_net(h)  # NxK
         A = torch.transpose(A, 1, 0)  # KxN
@@ -169,42 +200,17 @@ class CLAM_SB(nn.Module):
         A_raw = A
         A = F.softmax(A, dim=1)  # softmax over N
 
-        if instance_eval:
-            total_inst_loss = 0.0
-            all_preds = []
-            all_targets = []
-            all_logits = []
-            inst_labels = F.one_hot(label, num_classes=self.n_classes).squeeze()  # binarize label
-            for i in range(len(self.instance_classifiers)):
-                inst_label = inst_labels[i].item()
-                classifier = self.instance_classifiers[i]
-                if inst_label == 1:  # in-the-class:
-                    instance_loss, preds, targets, inst_logits = self.inst_eval(A, h, classifier)
-                    all_preds.extend(preds.cpu().numpy())
-                    all_targets.extend(targets.cpu().numpy())
-                    all_logits.extend(inst_logits.detach().cpu().numpy())
-                else:  # out-of-the-class
-                    if self.subtyping:
-                        instance_loss, preds, targets, inst_logits = self.inst_eval_out(A, h, classifier)
-                        all_preds.extend(preds.cpu().numpy())
-                        all_targets.extend(targets.cpu().numpy())
-                        all_logits.extend(inst_logits.detach().cpu().numpy())
-                    else:
-                        continue
-                total_inst_loss += instance_loss
 
-            if self.subtyping:
-                total_inst_loss /= len(self.instance_classifiers)
+        if instance_eval:
+            total_inst_loss, all_targets, all_logits, all_preds = self.instance_eval_sb(A, h, label)
+            results_dict = {'instance_loss': total_inst_loss, 'inst_labels': np.array(all_targets),
+                            'inst_preds': np.array(all_preds), 'inst_logits':np.array(all_logits)}
 
         M = torch.mm(A, h)
         logits = self.classifiers(M)
         Y_hat = torch.topk(logits, 1, dim=1)[1]
         Y_prob = F.softmax(logits, dim=1)
-        if instance_eval:
-            results_dict = {'instance_loss': total_inst_loss, 'inst_labels': np.array(all_targets),
-                            'inst_preds': np.array(all_preds), 'inst_logits':np.array(all_logits)}
-        else:
-            results_dict = {}
+
         if return_features:
             results_dict.update({'features': M})
         return logits, Y_prob, Y_hat, A_raw, results_dict
@@ -234,7 +240,35 @@ class CLAM_MB(CLAM_SB):
         self.subtyping = subtyping
         self.apply(initialize_weights)
 
+    def instance_eval_mb(self, A, h, label):
+        total_inst_loss = 0.0
+        all_preds = []
+        all_targets = []
+        inst_labels = F.one_hot(label, num_classes=self.n_classes).squeeze()  # binarize label
+        for i in range(len(self.instance_classifiers)):
+            inst_label = inst_labels[i].item()
+            classifier = self.instance_classifiers[i]
+            if inst_label == 1:  # in-the-class:
+                instance_loss, preds, targets = self.inst_eval(A[i], h, classifier)
+                all_preds.extend(preds.cpu().numpy())
+                all_targets.extend(targets.cpu().numpy())
+            else:  # out-of-the-class
+                if self.subtyping:
+                    instance_loss, preds, targets = self.inst_eval_out(A[i], h, classifier)
+                    all_preds.extend(preds.cpu().numpy())
+                    all_targets.extend(targets.cpu().numpy())
+                else:
+                    continue
+            total_inst_loss += instance_loss
+
+        if self.subtyping:
+            total_inst_loss /= len(self.instance_classifiers)
+        return total_inst_loss, all_targets, all_preds
+
+
     def forward(self, h, label=None, instance_eval=False, return_features=False, attention_only=False):
+
+        results_dict = {}
         device = h.device
         A, h = self.attention_net(h)  # NxK
         A = torch.transpose(A, 1, 0)  # KxN
@@ -244,28 +278,9 @@ class CLAM_MB(CLAM_SB):
         A = F.softmax(A, dim=1)  # softmax over N
 
         if instance_eval:
-            total_inst_loss = 0.0
-            all_preds = []
-            all_targets = []
-            inst_labels = F.one_hot(label, num_classes=self.n_classes).squeeze()  # binarize label
-            for i in range(len(self.instance_classifiers)):
-                inst_label = inst_labels[i].item()
-                classifier = self.instance_classifiers[i]
-                if inst_label == 1:  # in-the-class:
-                    instance_loss, preds, targets = self.inst_eval(A[i], h, classifier)
-                    all_preds.extend(preds.cpu().numpy())
-                    all_targets.extend(targets.cpu().numpy())
-                else:  # out-of-the-class
-                    if self.subtyping:
-                        instance_loss, preds, targets = self.inst_eval_out(A[i], h, classifier)
-                        all_preds.extend(preds.cpu().numpy())
-                        all_targets.extend(targets.cpu().numpy())
-                    else:
-                        continue
-                total_inst_loss += instance_loss
-
-            if self.subtyping:
-                total_inst_loss /= len(self.instance_classifiers)
+            total_inst_loss, all_targets, all_logits, all_preds = self.instance_eval_sb(A, h, label)
+            results_dict = {'instance_loss': total_inst_loss, 'inst_labels': np.array(all_targets),
+                            'inst_preds': np.array(all_preds)}
 
         M = torch.mm(A, h)
         logits = torch.empty(1, self.n_classes).float().to(device)
@@ -273,11 +288,7 @@ class CLAM_MB(CLAM_SB):
             logits[0, c] = self.classifiers[c](M[c])
         Y_hat = torch.topk(logits, 1, dim=1)[1]
         Y_prob = F.softmax(logits, dim=1)
-        if instance_eval:
-            results_dict = {'instance_loss': total_inst_loss, 'inst_labels': np.array(all_targets),
-                            'inst_preds': np.array(all_preds)}
-        else:
-            results_dict = {}
+
         if return_features:
             results_dict.update({'features': M})
         return logits, Y_prob, Y_hat, A_raw, results_dict
