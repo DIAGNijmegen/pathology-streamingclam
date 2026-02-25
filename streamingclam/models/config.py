@@ -3,7 +3,6 @@ import torch
 import torch.nn as nn
 
 from lightstream.models.resnet import StreamingResNet
-from lightstream.models.inceptionnext import StreamingInceptionNext
 from lightstream.models.convnext.convnext import StreamingConvNext
 
 # Streamingclam works with resnets, can be extended to other encoders if needed
@@ -89,7 +88,6 @@ def configure_backbone(**kwargs):
     model_map = {
         **{name: StreamingResNet for name in StreamingResNet.get_model_names()},
         **{name: StreamingConvNext for name in StreamingConvNext.get_model_names()},
-        **{name: StreamingInceptionNext for name in StreamingInceptionNext.get_model_names()},
     }
 
     assert encoder in model_map, f"Unsupported encoder: {encoder}"

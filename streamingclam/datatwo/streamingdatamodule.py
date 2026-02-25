@@ -4,13 +4,12 @@ import albumentationsxl as A
 
 from pathlib import Path
 
-from lightning.pytorch.utilities.types import EVAL_DATALOADERS
 from torch.utils.data import DataLoader
 
+from lightning.pytorch.utilities.types import EVAL_DATALOADERS
 from streamingclam.datatwo.streamingdataset import StreamingDataset
 from streamingclam.datatwo.samplers import weighted_sampler
 from streamingclam.datatwo.utils import streaming_collate_fn
-
 
 
 class BatchWrapper:

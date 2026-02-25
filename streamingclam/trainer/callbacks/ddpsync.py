@@ -1,4 +1,10 @@
-# src/lightning/callbacks/ddpsync.py
+"""
+This file contains callbacks that monitors the ddp processes across gpu's during training.
+It checks for optimizer states and parameter gradients
+If ranks diverge (i.e. weights differ) then it will proceed to print warnings that states have diverged
+
+It is not needed to run streaming, but it is a file for additional debugging.
+"""
 
 import torch
 import torch.distributed as dist
@@ -75,8 +81,6 @@ def check_optimizer_state_sync(optimizer: torch.optim.Optimizer, device: torch.d
         print(msg)
         if strict:
             raise RuntimeError(msg)
-    else:
-        print("all is well")
 
 
 

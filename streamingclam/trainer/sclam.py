@@ -7,6 +7,7 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 import torch.distributed as dist
+from statsmodels.graphics.tukeyplot import results
 from torch.optim.lr_scheduler import LambdaLR
 from torch import Tensor
 
@@ -17,38 +18,44 @@ from torchmetrics.classification import AUROC, Accuracy, BinaryCalibrationError,
 
 from lightstream import LightningStreamingModule
 from streamingclam.models.config import CLAMConfig, configure_backbone
+from streamingclam.trainer.callbacks.streamingwriter import StreamingHeatmapWriter
 
 class StreamingCLAM(LightningStreamingModule):
 
     def __init__(
         self,
-        encoder: str,
         branch: str,
-        n_classes: int,
-        tile_size: int,
+        num_classes: int,
         gate: bool = True,
         use_dropout: bool = True,
+        bag_weight: float = 1.0,
         k_sample: int = 8,
         subtyping: bool = False,
-        loss_fn: torch.nn = torch.nn.CrossEntropyLoss,
-        instance_loss_fn: torch.nn = torch.nn.CrossEntropyLoss,
         initial_lr: float = 2e-4,
         finetune_lr: float = 2e-5,
         accumulate_grad_batches: int = 1,
         unfreeze_epoch: int = 15,
         **kwargs,
     ):
-        self.save_hyperparameters()
+        self.save_hyperparameters(ignore=['loss_fn', 'instance_loss_fn'])
+        encoder = kwargs.get("encoder")
         model, pooling_layer = configure_backbone(**kwargs)
 
         super().__init__(model)
 
-        self.clam = CLAMConfig(encoder, branch, n_classes, gate, use_dropout, k_sample, instance_loss_fn, subtyping)
+        self.pooling_layer = pooling_layer  # Can be None if chosen as None, or if it's part of the streaming network
+
+        config = CLAMConfig(encoder, branch, num_classes, gate, use_dropout, k_sample, nn.CrossEntropyLoss, subtyping)
+        self.clam = config.configure_clam()
+
+        self.num_classes = num_classes
 
         self.initial_lr = initial_lr
         self.finetune_lr = finetune_lr
         self.accumulate_grad_batches = accumulate_grad_batches
         self.unfreeze_epoch = unfreeze_epoch
+        self.loss_fn = nn.CrossEntropyLoss()
+        self.bag_weight = bag_weight
 
         # Will be handled by the trainer
         self._init_metrics()
@@ -69,9 +76,9 @@ class StreamingCLAM(LightningStreamingModule):
     def _init_metrics(self):
         self.train_metrics = MetricCollection(
             {
-                "accuracy": Accuracy(task="multiclass", num_classes=self.P),
-                "auc": AUROC(task="multiclass", num_classes=self.P),
-                "balanced_acc": Accuracy(task="multiclass", num_classes=self.P, average="macro"),
+                "accuracy": Accuracy(task="multiclass", num_classes=self.num_classes),
+                "auc": AUROC(task="multiclass", num_classes=self.num_classes),
+                "balanced_acc": Accuracy(task="multiclass", num_classes=self.num_classes, average="macro"),
             },
             prefix="train/",
         )
@@ -80,24 +87,22 @@ class StreamingCLAM(LightningStreamingModule):
 
         # add ECE separately
         n_bins = 15
-        if self.P == 2:
+        if self.num_classes == 2:
             self.train_ece = BinaryCalibrationError(n_bins=n_bins, norm="l1")
             self.val_ece = BinaryCalibrationError(n_bins=n_bins, norm="l1")
             self.test_ece = BinaryCalibrationError(n_bins=n_bins, norm="l1")
         else:
-            self.train_ece = MulticlassCalibrationError(num_classes=self.P, n_bins=n_bins, norm="l1")
-            self.val_ece = MulticlassCalibrationError(num_classes=self.P, n_bins=n_bins, norm="l1")
-            self.test_ece = MulticlassCalibrationError(num_classes=self.P, n_bins=n_bins, norm="l1")
+            self.train_ece = MulticlassCalibrationError(num_classes=self.num_classes, n_bins=n_bins, norm="l1")
+            self.val_ece = MulticlassCalibrationError(num_classes=self.num_classes, n_bins=n_bins, norm="l1")
+            self.test_ece = MulticlassCalibrationError(num_classes=self.num_classes, n_bins=n_bins, norm="l1")
 
     def gather_loss_metrics(self, loss_dict: dict, prefix: str | None = None) -> dict:
         """
-        Gather loss components and put them in individual metrics. The following losses can be included:
-        total loss, elbo, nll, kld loss, evidence (not technically a loss, but fits in here)
-        The loss components from mixmil are renamed to stratify between train/val/test.
+        Gather loss components and put them in individual metrics.
         Parameters
         ----------
         loss_dict : dict
-            Dictionary with loss components from mixmil
+            Dictionary with loss components from sclam
         prefix : str
 
         Returns
@@ -108,10 +113,11 @@ class StreamingCLAM(LightningStreamingModule):
         """
         result_dict = {
             f"{prefix}total_loss": loss_dict["total_loss"],
-            f"{prefix}elbo": loss_dict["elbo"],
             f"{prefix}ll_loss": loss_dict["ll"],
-            f"{prefix}kld_loss": loss_dict["kld"],
         }
+
+        if 'instance_loss' in loss_dict.keys():
+            result_dict[f"{prefix}inst_loss"] = loss_dict["instance_loss"]
 
         return result_dict
 
@@ -129,67 +135,49 @@ class StreamingCLAM(LightningStreamingModule):
             "lr/head", opt.param_groups[1]["lr"], prog_bar=True, sync_dist=True, on_epoch=True, batch_size=batch_size
         )
 
+    def loss(self, logits, results_dict, label):
+        """ gather loss components for clam"""
+
+        loss = self.bag_weight * self.loss_fn(logits, label[0])
+        total_loss = loss
+        # gather loss objects
+        ldict = {}
+        if 'instance_loss' in results_dict.keys():
+            instance_loss = results_dict["instance_loss"] * (1-self.bag_weight)
+            total_loss = total_loss + instance_loss
+            ldict["instance_loss"] = instance_loss.item()
+
+
+        ldict = {'total_loss': total_loss.item(), 'll_loss': loss.item()}
+        return total_loss, ldict
+
     def forward(self, image, mask=None):
         fmap = self.forward_streaming(image)
-        return self.forward_head(fmap, mask=mask, return_features=self.return_features, attention_only=self.attention_only)
+        return self.forward_clam(fmap, mask=mask)
 
     def forward_clam(self,
-        fmap: torch.Tensor,
+        features: torch.Tensor,
         mask: torch.Tensor | None = None,
-        instance_eval: bool = False,
         label: torch.Tensor = None,
-        return_features: bool = False,
-        attention_only: bool = False,
-
+        instance_eval: bool = False,
     ):
-        batch_size, num_features, h, w = fmap.shape
 
-        if self.ds_blocks is not None:
-            fmap = self.ds_blocks(fmap)
+        features = self.pooling_layer(features) if self.pooling_layer else features
 
-        # Mask background, can heavily reduce inputs to clam network
-        if mask is not None:
-            fmap = torch.masked_select(fmap, mask)
-        del mask
+        channels = features.shape[1]
+        if mask is not None and not torch.all(~mask):
+            features = torch.masked_select(features, mask)  # Mask out non-tissue areas with the tissue background mask
+            del mask
 
         # Put everything back together into an array [channels, #unmasked_pixels]
         # Change dimensions from [batch_size, C, H, W] to [batch_size, C, H * W]
-        fmap = torch.reshape(fmap, (num_features, -1)).transpose(0, 1)
+        features = torch.reshape(features, (channels, -1)).transpose(0, 1)
 
-        if self.attention_only:
-            return self.head(
-                fmap,
-                label=None,
-                instance_eval=False,
-                attention_only=self.attention_only,
-            )
-
-        logits, Y_prob, Y_hat, A_raw, instance_dict = self.head(
-            fmap,
-            label=label,
-            instance_eval=instance_eval,
-            return_features=return_features,
-            attention_only=attention_only,
-        )
-
-        return logits, Y_prob, Y_hat, A_raw, instance_dict
+        return self.clam.forward(features, label=label, instance_eval=instance_eval)
 
 
     def forward_streaming(self, x):
         return self.stream_network.forward(x)
-
-
-    def on_train_epoch_start(self) -> None:
-        if self.current_epoch == self.unfreeze_epoch:
-            print("Training streaming layers")
-
-        if self.current_epoch >= self.unfreeze_epoch:
-            # >= here, when resuming should put this on
-            self.unfreeze_streaming_network()
-            self.train_streaming_layers = True
-
-    def on_train_epoch_end(self) -> None:
-        self.lr_schedulers().step()
 
 
     def on_train_epoch_start(self) -> None:
@@ -290,36 +278,18 @@ class StreamingCLAM(LightningStreamingModule):
                 opt.zero_grad()
 
     def validation_step(self, batch, batch_idx, *args: Any, **kwargs: Any) -> STEP_OUTPUT:
-        image, covariates, label = batch.image, batch.covariates, batch.label
+        image, label = batch.image, batch.label
         mask = getattr(batch, "mask", None)
 
-        Y = len(self.trainer.val_dataloaders.dataset)
-
-        n_samples, predict = (None, True) if self.use_mean_weights else (self.n_samples, False)
-
-        u, t, w, _w = self(image, mask, n_samples=n_samples, predict=predict)
-
-        logits = self.mixmil.get_logits(u, covariates)
-
-        loss, ldict = self.mixmil.loss(logits, label, kld_w=1 / Y)
-
-        loss_dict = self.gather_loss_metrics(ldict, prefix="val/")
-
-        # Add for now: if binomial we only get 1 class, metrics don't like it!
-        u = torch.cat([-u, u], 1) if u.shape[1] == 1 else u
+        logits, Y_prob, Y_hat, A_raw, results_dict = self(image, mask)
+        total_loss, ldict = self.loss(logits, results_dict, label)
+        loss_dict = self.gather_loss_metrics(ldict, prefix="val/") # converts losses to loggable train/val/test metrics
 
         # Logging happens at batch size
-        self.val_metrics(u.softmax(1).mean(2, keepdim=True), label.long(), sync_dist=True)
+        self.val_metrics(logits, label[0].long(), sync_dist=True)
         self.log_dict(self.val_metrics, on_epoch=True, sync_dist=True, batch_size=1)
         self.log_dict(loss_dict, prog_bar=True, on_step=False, on_epoch=True, sync_dist=True, batch_size=1)
 
-        probs = u.softmax(dim=1).mean(dim=2)  # [B, P]
-
-        if self.P == 2:
-            probs_pos = probs[:, 1]  # [B]
-            self.val_ece.update(probs_pos, label.int().view(-1))
-        else:
-            self.val_ece.update(probs, label.long().view(-1))
 
     def test_step(self, batch, *args: Any, **kwargs: Any) -> tuple[Any, Any, Any]:
         image, covariates, label = batch.image, batch.covariates, batch.label
@@ -383,7 +353,7 @@ class StreamingCLAM(LightningStreamingModule):
 
     def configure_optimizers(self):
         backbone_params = list(self.stream_network.stream_module.parameters())
-        head_params = list(self.mixmil.parameters())
+        head_params = list(self.clam.parameters())
 
         # Optimizer setup
         optimizer = torch.optim.RAdam(

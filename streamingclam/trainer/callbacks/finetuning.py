@@ -1,7 +1,6 @@
 from lightning.pytorch.callbacks import BaseFinetuning
 from lightning.pytorch.utilities.rank_zero import rank_zero_info
-import torch.nn as nn
-import torch
+
 
 
 class SafeStreamUnfreezing(BaseFinetuning):

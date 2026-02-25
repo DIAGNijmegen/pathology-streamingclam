@@ -189,14 +189,13 @@ class CLAM_SB(nn.Module):
 
         return total_inst_loss, all_targets, all_logits, all_preds
 
-    def forward(self, h, label=None, instance_eval=False, return_features=False, attention_only=False):
+    def forward(self, h, label=None, instance_eval=False):
 
         results_dict = {}
         device = h.device
         A, h = self.attention_net(h)  # NxK
         A = torch.transpose(A, 1, 0)  # KxN
-        if attention_only:
-            return A
+
         A_raw = A
         A = F.softmax(A, dim=1)  # softmax over N
 
@@ -211,8 +210,6 @@ class CLAM_SB(nn.Module):
         Y_hat = torch.topk(logits, 1, dim=1)[1]
         Y_prob = F.softmax(logits, dim=1)
 
-        if return_features:
-            results_dict.update({'features': M})
         return logits, Y_prob, Y_hat, A_raw, results_dict
 
 
@@ -266,14 +263,12 @@ class CLAM_MB(CLAM_SB):
         return total_inst_loss, all_targets, all_preds
 
 
-    def forward(self, h, label=None, instance_eval=False, return_features=False, attention_only=False):
+    def forward(self, h, label=None, instance_eval=False):
 
         results_dict = {}
         device = h.device
         A, h = self.attention_net(h)  # NxK
         A = torch.transpose(A, 1, 0)  # KxN
-        if attention_only:
-            return A
         A_raw = A
         A = F.softmax(A, dim=1)  # softmax over N
 
@@ -289,6 +284,4 @@ class CLAM_MB(CLAM_SB):
         Y_hat = torch.topk(logits, 1, dim=1)[1]
         Y_prob = F.softmax(logits, dim=1)
 
-        if return_features:
-            results_dict.update({'features': M})
         return logits, Y_prob, Y_hat, A_raw, results_dict
