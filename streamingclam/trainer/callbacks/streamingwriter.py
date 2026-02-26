@@ -15,7 +15,6 @@ class StreamingHeatmapWriter(BasePredictionWriter):
         super().__init__(write_interval)
         self.output_dir = Path(output_dir)
         self.heatmap_dir = None
-        self.n_samples = None
         self.write_level = write_level
         self.overwrite = overwrite
         self.skip = False
@@ -41,19 +40,16 @@ class StreamingHeatmapWriter(BasePredictionWriter):
         batch_idx: int,
         dataloader_idx: int,
     ) -> None:
-        self.n_samples = pl_module.n_samples
-        u, t, _w = prediction
+        logits, Y_prob, Y_hat, A_raw = prediction
 
         metadata = batch.metadata
         mask = batch.mask.detach().cpu().numpy()[0, ...]
         output_stride = trainer.predict_dataloaders.dataset.network_output_stride
         metadata["coords_level"] = self.get_coords_from_mask(mask) * output_stride
-        self.process_wsi(metadata, t, _w, batch.label)
+        self.process_wsi(metadata, logits, Y_prob, Y_hat, A_raw, batch.label)
         print(f'Done processing {metadata["filename"]}')
 
-
-
-    def process_wsi(self, metadata: dict, t: torch.Tensor, _w: torch.Tensor, label: torch.Tensor):
+    def process_wsi(self, metadata: dict, logits, Y_prob, Y_hat, A_raw, label: torch.Tensor):
         self.create_output_dirs(fname=metadata["filename"])
 
         # skip if result exists, writing with pyvips can take very long.
@@ -61,54 +57,26 @@ class StreamingHeatmapWriter(BasePredictionWriter):
             self.skip = False
             return
 
-        u_wsi = t * _w.softmax(0)  # Spatial dimensions preserved
-        u_mean, t_mean, _w_mean_norm = self.calculate_sample_means(u_wsi, t, _w)
+        # Normalized attention for visualization
+        A_norm = (A_raw - A_raw.min()) / (A_raw.max() - A_raw.min())
+        hmap = self.create_mini_canvas(metadata, A_norm.detach().cpu().float().numpy())
+        self.create_and_save_heatmaps(hmap, [f"class_{i}" for i in range(A_norm.shape[0])])
+        self.create_and_save_thumbnails(
+            hmap, f"Attention", [f"class_{i}" for i in range(A_norm.shape[0])], vmin=0, vmax=1
+        )
 
-        scores = [t]
-        means = [t_mean, _w_mean_norm]
-        bandnames = ["total_uncertainty", "aleatoric_uncertainty", "epistemic_uncertainty", "JS_divergence"]
-        names = ["t", "_w"]
-
-        # Write uncertainty maps
-        for score, name in zip(scores, names):
-            entropy_calc = self.calculate_uncertainties(score)
-            jsd_calc = self.calculate_jsd(score)
-            thumb_uncertainties = np.vstack([np.vstack(entropy_calc), jsd_calc]).T
-
-            heatmap_bandnames = [name + "_" + x for x in bandnames]
-            hmap = self.create_mini_canvas(metadata, thumb_uncertainties)
-            # self.create_and_save_heatmaps(hmap, heatmap_bandnames)
-            self.create_and_save_thumbnails(hmap, f"{name}_uncertainties", bandnames, vmin=0, vmax=1)
-
-        names = ["_w", "t", "t_logit", "u_logit", "attr"]
-
-        z = _w.mean(2)
-        # Write average probability/attention scores
-        means = [z, t.softmax(1).mean(2), t.mean(2), u_wsi.mean(2)]
-
-        for mean, name in zip(means, names):
-            vmin, vmax = (0, 1) if name == "t" else (None, None)
-
-            hmap = self.create_mini_canvas(metadata, mean.detach().cpu().float().numpy())
-            # self.create_and_save_heatmaps(hmap, [f"class_{i}" for i in range(t_mean.shape[1])])
-            self.create_and_save_thumbnails(
-                hmap, f"{name}_mean", [f"class_{i}" for i in range(t_mean.shape[1])], vmin=vmin, vmax=vmax
-            )
-
-        self.write_slide_statistics(u_wsi, label)
-        self.write_predictions(t.mean(2), label)
+        self.write_slide_statistics(Y_prob, Y_hat, label)
         torch.save(metadata, self.heatmap_dir / Path("metadata.pt"))
 
     def create_mini_canvas(self, metadata: dict, scores: np.ndarray):
-        hmap = Heatmap(metadata["width_level"], metadata["height_level"], scores.shape[1], write_level=self.write_level)
+        hmap = Heatmap(metadata["width_level"], metadata["height_level"], scores.shape[0], write_level=self.write_level)
         hmap.create_mini_heatmap(coords=metadata["coords_level"], scores=scores, patch_size=metadata["patch_size"])
         return hmap
-
 
     def create_and_save_thumbnails(
         self, hmap: Heatmap, title: str, bandnames: list | None = None, vmin: float = None, vmax: float = None
     ):
-        thumbnail_path = Path(self.heatmap_dir) / f"{title}_n_samples={self.n_samples}.png"
+        thumbnail_path = Path(self.heatmap_dir) / f"{title}.png"
         hmap.save_png_thumbnail(save_path=thumbnail_path, titles=bandnames, vmin=vmin, vmax=vmax)
 
     def create_and_save_heatmaps(self, hmap: Heatmap, bandnames: list | None = None):
@@ -116,23 +84,11 @@ class StreamingHeatmapWriter(BasePredictionWriter):
         save_paths = [self.heatmap_dir / x for x in bandnames]
         hmap.save_tif_heatmap(save_paths=save_paths)
 
-    def write_slide_statistics(self, u, label):
-        # Write the results of ... w, t, and u
-        # Write means, entropy score
-        # make avg slide entropy based on whole slide level, and on average pixel entropy
-
-        u_mean_prob = u.sum(0).softmax(0).mean(1)
-        u_pred = u_mean_prob.argmax()
-
-        total, aleatoric, epistemic = self.calculate_uncertainties(u.sum(0, keepdim=True))
-
+    def write_slide_statistics(self, prob, pred, label):
         df = pd.DataFrame()
         df["label"] = [label.detach().cpu().squeeze().float().numpy()]
-        df["probs"] = [u_mean_prob.detach().cpu().float().numpy()]
-        df["y_hat"] = u_pred.detach().cpu().float().numpy()
-        df["entropy"] = total
-        df["aleatoric"] = aleatoric
-        df["epistemic"] = epistemic
+        df["probs"] = [prob.detach().cpu().float().numpy().squeeze()]
+        df["y_hat"] = pred.detach().cpu().float().numpy()
 
         # Split the list into separate columns
         split_cols = pd.DataFrame(df["probs"].apply(lambda x: [val for val in x]).tolist())
@@ -143,13 +99,6 @@ class StreamingHeatmapWriter(BasePredictionWriter):
         # Join with the original DataFrame (optional, depending on your needs)
         df = df.drop(columns=["probs"]).join(split_cols)
         df.to_csv(self.heatmap_dir / Path("slide_stats.csv"), index=False)
-
-    def write_predictions(self, scores: torch.Tensor, label):
-        scores = scores.detach().cpu().float().numpy()
-        label = label.detach().cpu().numpy()
-
-        torch.save({"t": scores, "label": label}, self.heatmap_dir / Path("scores.pt"))
-
 
     @staticmethod
     def get_coords_from_mask(mask) -> np.ndarray:

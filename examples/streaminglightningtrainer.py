@@ -14,7 +14,7 @@ from lightning.pytorch.utilities import rank_zero_only
 from lightning.pytorch.callbacks.early_stopping import EarlyStopping
 from lightning.pytorch.callbacks import ModelCheckpoint, ModelSummary
 
-from streamingclam.datatwo.streamingdatamodule import StreamingDataModule
+from streamingclam.data.streamingdatamodule import StreamingDataModule
 from streamingclam.trainer.sclam import StreamingCLAM
 from streamingclam.trainer.options import StreamingCLAMOptions
 from streamingclam.trainer.callbacks.printing import PrintingCallback
@@ -77,7 +77,7 @@ def configure_trainer(options: StreamingCLAMOptions) -> pl.Trainer:
         filename="sclam-loss-{epoch:02d}-val_total_loss={val/total_loss:.2f}-val_auc={val/auc:.2f}-val_acc={val/accuracy:.2f}",
         save_top_k=1,
         save_last=True,
-        mode="max",
+        mode="min",
         verbose=True,
         auto_insert_metric_name=False,
     )
@@ -104,7 +104,7 @@ def configure_trainer(options: StreamingCLAMOptions) -> pl.Trainer:
         auto_insert_metric_name=False,
     )
 
-    early_stopping = EarlyStopping(monitor="val/ll_loss", min_delta=0.00, patience=100, verbose=True, mode="max")
+    early_stopping = EarlyStopping(monitor="val/ll_loss", min_delta=0.00, patience=10, verbose=True, mode="min")
 
     trainer = pl.Trainer(
         **options.trainer_options.to_dict(),

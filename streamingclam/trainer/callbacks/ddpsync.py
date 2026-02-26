@@ -81,7 +81,8 @@ def check_optimizer_state_sync(optimizer: torch.optim.Optimizer, device: torch.d
         print(msg)
         if strict:
             raise RuntimeError(msg)
-
+        else:
+            print("ddp optimizer states verified synced across ranks.")
 
 
 def verify_optimizer_lr_sync(optimizer, device):

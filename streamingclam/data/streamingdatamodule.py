@@ -7,9 +7,9 @@ from pathlib import Path
 from torch.utils.data import DataLoader
 
 from lightning.pytorch.utilities.types import EVAL_DATALOADERS
-from streamingclam.datatwo.streamingdataset import StreamingDataset
-from streamingclam.datatwo.samplers import weighted_sampler
-from streamingclam.datatwo.utils import streaming_collate_fn
+from streamingclam.data.streamingdataset import StreamingDataset
+from streamingclam.data.samplers import weighted_sampler
+from streamingclam.data.utils import streaming_collate_fn
 
 
 class BatchWrapper:
@@ -154,7 +154,6 @@ class StreamingDataModule(L.LightningDataModule):
         return DataLoader(
             self.train_dataset,
             num_workers=self.num_workers,
-            sampler=self.train_sampler,
             shuffle=False,
             prefetch_factor=1,
             pin_memory=False,
@@ -171,7 +170,6 @@ class StreamingDataModule(L.LightningDataModule):
             pin_memory=False,
             batch_size=1,
             collate_fn=streaming_collate_fn,
-            sampler=self.val_sampler,
         )
 
     def test_dataloader(self):

@@ -1,13 +1,11 @@
 import logging
 import pandas as pd
-import numpy as np
 from typing import Any
 from pathlib import Path
 
 import torch
 import torch.nn as nn
 import torch.distributed as dist
-from statsmodels.graphics.tukeyplot import results
 from torch.optim.lr_scheduler import LambdaLR
 from torch import Tensor
 
@@ -56,6 +54,8 @@ class StreamingCLAM(LightningStreamingModule):
         self.unfreeze_epoch = unfreeze_epoch
         self.loss_fn = nn.CrossEntropyLoss()
         self.bag_weight = bag_weight
+        self.test_outputs = []
+
 
         # Will be handled by the trainer
         self._init_metrics()
@@ -84,17 +84,6 @@ class StreamingCLAM(LightningStreamingModule):
         )
         self.val_metrics = self.train_metrics.clone(prefix="val/")
         self.test_metrics = self.train_metrics.clone(prefix="test/")
-
-        # add ECE separately
-        n_bins = 15
-        if self.num_classes == 2:
-            self.train_ece = BinaryCalibrationError(n_bins=n_bins, norm="l1")
-            self.val_ece = BinaryCalibrationError(n_bins=n_bins, norm="l1")
-            self.test_ece = BinaryCalibrationError(n_bins=n_bins, norm="l1")
-        else:
-            self.train_ece = MulticlassCalibrationError(num_classes=self.num_classes, n_bins=n_bins, norm="l1")
-            self.val_ece = MulticlassCalibrationError(num_classes=self.num_classes, n_bins=n_bins, norm="l1")
-            self.test_ece = MulticlassCalibrationError(num_classes=self.num_classes, n_bins=n_bins, norm="l1")
 
     def gather_loss_metrics(self, loss_dict: dict, prefix: str | None = None) -> dict:
         """
@@ -147,13 +136,12 @@ class StreamingCLAM(LightningStreamingModule):
             total_loss = total_loss + instance_loss
             ldict["instance_loss"] = instance_loss.item()
 
-
-        ldict = {'total_loss': total_loss.item(), 'll_loss': loss.item()}
+        ldict = {'total_loss': total_loss.item(), 'll': loss.item()}
         return total_loss, ldict
 
-    def forward(self, image, mask=None):
+    def forward(self, image, mask=None, label=None, instance_eval=None):
         fmap = self.forward_streaming(image)
-        return self.forward_clam(fmap, mask=mask)
+        return self.forward_clam(fmap, mask=mask, label=label, instance_eval=instance_eval)
 
     def forward_clam(self,
         features: torch.Tensor,
@@ -193,28 +181,26 @@ class StreamingCLAM(LightningStreamingModule):
         self.lr_schedulers().step()
 
     def training_step(self, batch, batch_idx):
-        image, covariates, label = batch.image, batch.covariates, batch.label
+
+        image, label = batch.image, batch.label
         mask = getattr(batch, "mask", None)
-        Y = len(self.trainer.train_dataloader.dataset)
 
         features = self.forward_streaming(image)
         features.requires_grad = True
 
-        n_samples, predict = (None, True) if self.use_mean_weights else (self.n_samples, False)
+        logits, Y_prob, Y_hat, A_raw, results_dict = self.forward_clam(features, mask, label)
 
-        u, t, w, _w = self.forward_mixmil(features, mask, n_samples=n_samples, predict=predict)
-        logits = self.mixmil.get_logits(u, covariates)
-
-        loss, ldict = self.mixmil.loss(logits, label, kld_w=1 / Y)
+        loss, ldict = self.loss(logits, results_dict, label)
         loss = loss / self.accumulate_grad_batches
 
         self._backward_streaming(loss, image, features)
         self._distribute_gradients()
         self._optimizer_step_if_needed(batch_idx)
 
-        # Logging
-        loss_dict = self.gather_loss_metrics(ldict, prefix="train/")
-        self.train_metrics(u.softmax(1).mean(2, keepdim=True), label.long(), sync_dist=True)
+        loss_dict = self.gather_loss_metrics(ldict, prefix="train/") # converts losses to loggable train/val/test metrics
+
+        # Logging happens at batch size
+        self.train_metrics(Y_prob, label[0].long(), sync_dist=True)
         self.log_dict(self.train_metrics, on_epoch=True, sync_dist=True, batch_size=1)
         self.log_dict(loss_dict, prog_bar=True, on_step=False, on_epoch=True, sync_dist=True, batch_size=1)
         self._log_lrs()
@@ -281,55 +267,36 @@ class StreamingCLAM(LightningStreamingModule):
         image, label = batch.image, batch.label
         mask = getattr(batch, "mask", None)
 
-        logits, Y_prob, Y_hat, A_raw, results_dict = self(image, mask)
-        total_loss, ldict = self.loss(logits, results_dict, label)
+        logits, Y_prob, Y_hat, A_raw, results_dict = self(image, mask, label)
+        loss, ldict = self.loss(logits, results_dict, label)
         loss_dict = self.gather_loss_metrics(ldict, prefix="val/") # converts losses to loggable train/val/test metrics
 
         # Logging happens at batch size
-        self.val_metrics(logits, label[0].long(), sync_dist=True)
+        self.val_metrics(Y_prob, label[0].long(), sync_dist=True)
         self.log_dict(self.val_metrics, on_epoch=True, sync_dist=True, batch_size=1)
         self.log_dict(loss_dict, prog_bar=True, on_step=False, on_epoch=True, sync_dist=True, batch_size=1)
 
 
-    def test_step(self, batch, *args: Any, **kwargs: Any) -> tuple[Any, Any, Any]:
-        image, covariates, label = batch.image, batch.covariates, batch.label
+    def test_step(self, batch, *args: Any, **kwargs: Any) -> STEP_OUTPUT:
+        image, label = batch.image, batch.label
         mask = getattr(batch, "mask", None)
 
-        Y = len(self.trainer.test_dataloaders.dataset)
+        logits, Y_prob, Y_hat, A_raw, results_dict = self(image, mask)
 
-        features = self.forward_streaming(image)  # using self.forward() is expensive, so only stream once
-
-        n_samples, predict = (None, True) if self.use_mean_weights else (self.n_samples, False)
-        u, t, w, _w = self.forward_mixmil(features, mask, n_samples=n_samples, predict=predict)
-
-        logits = self.mixmil.get_logits(u, covariates)
-
-        loss, ldict = self.mixmil.loss(logits, label, kld_w=1 / Y)
-
-        loss_dict = self.gather_loss_metrics(ldict, prefix="test/")
+        loss, ldict = self.loss(logits, results_dict, label)
+        loss_dict = self.gather_loss_metrics(ldict, prefix="test/") # converts losses to loggable train/val/test metrics
 
         self.log_dict(loss_dict, prog_bar=True, on_step=False, on_epoch=True, sync_dist=True, batch_size=1)
-        self.test_metrics.update(u.softmax(1).mean(2, keepdim=True).detach(), label.long().detach())
-
-        probs = u.softmax(dim=1).mean(dim=2)  # [B, P]
-
-        if self.P == 2:
-            probs_pos = probs[:, 1]  # [B]
-            self.test_ece.update(probs_pos, label.int().view(-1))
-        else:
-            self.test_ece.update(probs, label.long().view(-1))
+        self.test_metrics.update(Y_prob.detach(), label[0].long().detach())
 
         self.test_outputs.append(
             {
                 "slide_name": batch.metadata["filename"],
-                "probs": u.softmax(dim=1).mean(2, keepdim=True).detach().cpu().numpy(),
-                "y_hat": torch.argmax(u.mean(2, keepdim=True), dim=1).detach().cpu().numpy(),
+                "probs": Y_prob.detach().cpu().numpy(),
+                "y_hat": Y_hat.detach().cpu().numpy(),
                 "label": label.cpu().numpy(),
-                "n_samples": np.array([self.n_samples]),
-                "use_mean_weights": np.array([self.use_mean_weights])
             }
         )
-        return u, t, _w
 
     def predict_step(self, batch, *args: Any, **kwargs: Any) -> Any:
 
@@ -340,16 +307,15 @@ class StreamingCLAM(LightningStreamingModule):
                 heatmap_dir = self.trainer.default_root_dir / Path("heatmaps") / Path(batch.metadata['filename'])
 
         if heatmap_dir.exists() and not overwrite:
-            return 0,0,0
+            return 0,0,0,0 # Dummy return to make the callback not crash
 
-        image, covariates, label = batch.image, batch.covariates, batch.label
+        image, label = batch.image, batch.label
         mask = getattr(batch, "mask", None)
 
         features = self.forward_streaming(image)  # using self.forward() is expensive, so only stream once
-        n_samples, predict = (None, True) if self.use_mean_weights else (self.n_samples, False)
-        u, t, w, _w = self.forward_mixmil(features, mask, n_samples, predict)
+        logits, Y_prob, Y_hat, A_raw, results_dict = self.forward_clam(features, mask)
 
-        return u, t, _w
+        return logits, Y_prob, Y_hat, A_raw
 
     def configure_optimizers(self):
         backbone_params = list(self.stream_network.stream_module.parameters())
@@ -401,7 +367,7 @@ class StreamingCLAM(LightningStreamingModule):
         self._write_test_results(df, csv_name)
 
     def _write_test_results(self, df: pd.DataFrame, csv_name: str):
-        split_cols = pd.DataFrame(df["probs"].apply(lambda x: [val[0] for val in x]).tolist())
+        split_cols = pd.DataFrame(df["probs"].tolist())
         split_cols.columns = [f"p_{i}" for i in range(split_cols.shape[1])]
         df = df.drop(columns=["probs"]).join(split_cols)
         df["y_hat"] = df["y_hat"].apply(lambda x: x[0])
@@ -416,5 +382,6 @@ class StreamingCLAM(LightningStreamingModule):
             for k, v in self.trainer.callback_metrics.items()
         }
         metrics_path = Path(self.trainer.default_root_dir) / f"{csv_name}_metrics.csv"
+        print("writing metrics to ", metrics_path)
         pd.DataFrame([metrics]).to_csv(metrics_path, mode="a", index=False)
 

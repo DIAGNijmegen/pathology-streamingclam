@@ -1,10 +1,10 @@
 import argparse
-import torch
 import types
+from pathlib import Path
 from dataclasses import dataclass, fields, field
 from typing import Dict, Any, Union, Optional
 from dataclasses_json import dataclass_json, config
-from streamingclam.datatwo.augmentations import augmentations
+from streamingclam.data.augmentations import augmentations
 
 
 def encode_augmentations(aug):
@@ -20,16 +20,16 @@ class StreamingCLAMOptions:
     class ModelOptions:
         num_classes: int = 2
         encoder: str = "resnet34"  # Resnet 18, resNet34, or resnet39
-        branch: str = "sb" # single branch (sb) or multi branch (mb) clam attention model
+        branch: str = "mb" # single branch (sb) or multi branch (mb) clam attention model
         use_dropout: bool = False # Use dropout in the CLAM model at 0.25, default is False
         gate: bool = True # Use gated attention. Default is True.
         bag_weight: float = 1.0 # bag_weight * loss + (1-bag_Weight) * instance loss
         k_sample: int = 8 # How many patches to use for top k and bottom k in instance clustering
         subtyping: bool = False # toggle subtyping mode for instance clustering, default is false
         initial_lr: float = 1e-3  # the learning rate when training the CLAM attention head
-        finetune_lr: float = 1e-3 # Learning rate for head + backbone after unfreezing (training full streaming model)
-        unfreeze_epoch: int = 15 # Epoch to train all streaming layers
-        accumulate_grad_batches: int = 4  # Gradient accumulation: the amount of batches before optimizer step
+        finetune_lr: float = 5e-5 # Learning rate for head + backbone after unfreezing (training full streaming model)
+        unfreeze_epoch: int = 5 # Epoch to train all streaming layers
+        accumulate_grad_batches: int = 1  # Gradient accumulation: the amount of batches before optimizer step
                                            # We use automatic_optimization=False, so it's not exposed to the trainer!
 
     @dataclass_json
@@ -48,7 +48,7 @@ class StreamingCLAMOptions:
     @dataclass_json
     @dataclass
     class TrainerOptions:
-        max_epochs: int = 100  # The number of epochs to train (max)
+        max_epochs: int = 50  # The number of epochs to train (max)
         default_root_dir: str = "" # full path to where all the results will be stored (weights, checkpoints, logs, etc)
         devices: int = 1 # The number of gpu's used for training
         precision: str = "16-mixed" # The precision for training, see lightning docs for supported types
@@ -68,9 +68,9 @@ class StreamingCLAMOptions:
         mask_suffix: str = "_tissue"  # the suffix for mask tissues e.g. tumor_069_<mask_suffix>.tif
         filetype: str = ".tif"
         num_workers: int = 5
-        image_size: int = 8192  # represents image size if variable_input_shape=False, else the maximum image size
+        image_size: int = 4096  # represents image size if variable_input_shape=False, else the maximum image size
         variable_input_shapes: bool = True
-        read_level: int = 3  # the level of the tif file (0 is highest resolution)
+        read_level: int = 4  # the level of the tif file (0 is highest resolution)
         transform: Optional[Any] = field(
             default=None, metadata=config(encoder=encode_augmentations, exclude=lambda x: x is None)
         )  # populated in __post_init. only when stage = fit
@@ -80,11 +80,11 @@ class StreamingCLAMOptions:
     @dataclass_json
     @dataclass
     class MiscOptions:
-        stage: str = "fit"  # fit, validation, test, or predict
+        stage: str = "predict"  # fit, validation, test, or predict
         ckp_path: str = ""  # the name of the ckp file within the default_save_dir
         resume: bool = True  # Whether to resume training from the last/best epoch
-        write_level: int = 2
-        use_wandb: bool = False # Use wandb to log metrics. Default is False
+        write_level: int = 2  # Resolution, higher number equals less resolution. Integer higher than 0
+        use_wandb: bool = True # Use wandb to log metrics. Default is False
         wandb_project_name: str = "placeholder"
         wandb_api_key: str = "" # api key to automatically log in
 
@@ -101,6 +101,10 @@ class StreamingCLAMOptions:
             self.dataloader_options.transform = augmentations
         else:
             self.dataloader_options.transform = None
+
+        # Set default_root_dir if empty
+        if not self.trainer_options.default_root_dir:
+            self.trainer_options.default_root_dir = str(Path.cwd())
 
     @classmethod
     def from_args(cls):

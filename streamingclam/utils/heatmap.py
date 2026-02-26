@@ -49,12 +49,12 @@ class Heatmap:
             (
                 int(np.ceil(self.height / patch_size)),
                 int(np.ceil(self.width / patch_size)),
-                scores.shape[1],
+                scores.shape[0],
             )
         )
 
         coords = (coords / patch_size).astype("int")
-        for coord, score in zip(coords, scores):
+        for coord, score in zip(coords, scores.transpose()):
             x, y = int(coord[0]), int(coord[1])
             mini_canvas[y, x, :] = score
 

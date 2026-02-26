@@ -12,4 +12,4 @@ augmentations = A.Compose(
     ],
 )
 
-#augmentations = None
+augmentations = None
