@@ -23,6 +23,7 @@ class StreamingCLAMOptions:
         branch: str = "mb" # single branch (sb) or multi branch (mb) clam attention model
         use_dropout: bool = False # Use dropout in the CLAM model at 0.25, default is False
         gate: bool = True # Use gated attention. Default is True.
+        instance_eval: bool = False # whether to use the instance clustering module of clam. Default is False
         bag_weight: float = 1.0 # bag_weight * loss + (1-bag_Weight) * instance loss
         k_sample: int = 8 # How many patches to use for top k and bottom k in instance clustering
         subtyping: bool = False # toggle subtyping mode for instance clustering, default is false

@@ -26,6 +26,7 @@ class StreamingCLAM(LightningStreamingModule):
         num_classes: int,
         gate: bool = True,
         use_dropout: bool = True,
+        instance_eval: bool = False,
         bag_weight: float = 1.0,
         k_sample: int = 8,
         subtyping: bool = False,
@@ -53,6 +54,7 @@ class StreamingCLAM(LightningStreamingModule):
         self.accumulate_grad_batches = accumulate_grad_batches
         self.unfreeze_epoch = unfreeze_epoch
         self.loss_fn = nn.CrossEntropyLoss()
+        self.instance_eval = instance_eval
         self.bag_weight = bag_weight
         self.test_outputs = []
 
@@ -188,7 +190,7 @@ class StreamingCLAM(LightningStreamingModule):
         features = self.forward_streaming(image)
         features.requires_grad = True
 
-        logits, Y_prob, Y_hat, A_raw, results_dict = self.forward_clam(features, mask, label)
+        logits, Y_prob, Y_hat, A_raw, results_dict = self.forward_clam(features, mask, label, self.instance_eval)
 
         loss, ldict = self.loss(logits, results_dict, label)
         loss = loss / self.accumulate_grad_batches
@@ -267,7 +269,7 @@ class StreamingCLAM(LightningStreamingModule):
         image, label = batch.image, batch.label
         mask = getattr(batch, "mask", None)
 
-        logits, Y_prob, Y_hat, A_raw, results_dict = self(image, mask, label)
+        logits, Y_prob, Y_hat, A_raw, results_dict = self(image, mask, label, self.instance_eval)
         loss, ldict = self.loss(logits, results_dict, label)
         loss_dict = self.gather_loss_metrics(ldict, prefix="val/") # converts losses to loggable train/val/test metrics
 
@@ -281,7 +283,7 @@ class StreamingCLAM(LightningStreamingModule):
         image, label = batch.image, batch.label
         mask = getattr(batch, "mask", None)
 
-        logits, Y_prob, Y_hat, A_raw, results_dict = self(image, mask)
+        logits, Y_prob, Y_hat, A_raw, results_dict = self(image, mask,label, self.instance_eval)
 
         loss, ldict = self.loss(logits, results_dict, label)
         loss_dict = self.gather_loss_metrics(ldict, prefix="test/") # converts losses to loggable train/val/test metrics
