@@ -18,9 +18,9 @@ class StreamingCLAMOptions:
     @dataclass_json
     @dataclass
     class ModelOptions:
-        num_classes: int = 2
+        num_classes: int = 3
         encoder: str = "resnet34"  # Resnet 18, resNet34, or resnet39
-        branch: str = "mb" # single branch (sb) or multi branch (mb) clam attention model
+        branch: str = "sb" # single branch (sb) or multi branch (mb) clam attention model
         use_dropout: bool = False # Use dropout in the CLAM model at 0.25, default is False
         gate: bool = True # Use gated attention. Default is True.
         instance_eval: bool = False # whether to use the instance clustering module of clam. Default is False
@@ -39,7 +39,7 @@ class StreamingCLAMOptions:
         pooling_layer: str = "maxpool"  # one of maxpool, avgpool, none
         pooling_kernel: int = 8  # Kernel size & stride for the maxpool/avgpool
         stream_pooling_kernel: bool = False # Will add the pooling layer to the streaming network, otherwise done after
-        tile_size: int = 3200  # The tile size on the gpu, as high as the gpu vram can handle (will not affect classification performance, only speed)
+        tile_size: int = 4800  # The tile size on the gpu, as high as the gpu vram can handle (will not affect classification performance, only speed)
         statistics_on_cpu: bool = True  # Recommended to set to true since it takes up a lot of memory (only once)
         verbose: bool = True  # Verbose behaviour of streaming scnn.py
         normalize_on_gpu: bool = True  # Whether to normalize tiles on the GPU with ImageNet statistics. Default is True
@@ -81,8 +81,8 @@ class StreamingCLAMOptions:
     @dataclass_json
     @dataclass
     class MiscOptions:
-        stage: str = "predict"  # fit, validation, test, or predict
-        ckp_path: str = ""  # the name of the ckp file within the default_save_dir
+        stage: str = "test"  # fit, validation, test, or predict
+        ckp_path: str = "/data/temporary/stephan/pathology-streamingclam/converted_lightning.ckpt"  # the name of the ckp file within the default_save_dir
         resume: bool = True  # Whether to resume training from the last/best epoch
         write_level: int = 2  # Resolution, higher number equals less resolution. Integer higher than 0
         use_wandb: bool = True # Use wandb to log metrics. Default is False
